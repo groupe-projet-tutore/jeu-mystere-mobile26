@@ -1,6 +1,7 @@
 // src/styles/theme.ts
 // ═══════════════════════════════════════════════════════════
 //  PALETTE LISIBILITÉ MAXIMALE — contraste WCAG AA garanti
+//  Version 5.4 - Ajout des propriétés primary et primaryDark
 // ═══════════════════════════════════════════════════════════
 export const C = {
   // ── Fonds (du plus profond au plus clair)
@@ -26,7 +27,12 @@ export const C = {
   goldLight:  '#ffd166',
   goldBg:     '#1f1608',   // fond teinté or
 
-  // ── Actions
+  // ── Actions (alias pour compatibilité)
+  primary:      '#6d28d9',   // violet principal (actions principales)
+  primaryDark:  '#3d1a8a',   // violet foncé (hover, gradients)
+  primaryLight: '#9d5ff5',   // violet clair
+
+  // ── Actions originales (conservées pour compatibilité)
   blue:       '#4d8af0',
   blueDark:   '#1a5fd4',
   blueBg:     '#0d1e3d',

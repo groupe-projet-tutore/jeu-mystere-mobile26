@@ -1,12 +1,9 @@
 // src/hooks/useDuel.ts
-// ═══════════════════════════════════════════════════════════════════════════════
-//  HOOK DUEL — Version avec READY CHECK et timer serveur unique
-//  - Ready Check: synchronisation parfaite des deux joueurs avant le duel
-//  - Timer serveur UNIQUE (socketio.sleep) - client uniquement affichage
-//  - Événements distincts pour les abandons
-//  - CORRECTION: Envoi automatique de 'pret' quand l'adversaire est connu
-//  - NOUVEAU: Quitter proprement une salle sans conséquence (quitter_salle)
-// ═══════════════════════════════════════════════════════════════════════════════
+// Version 5.4 - CORRECTIONS COMPLÈTES
+// - Reconnexion WebSocket automatique
+// - Envoi pret unique et fiable
+// - Abandon avec confirmation serveur
+// - Reset propre des états
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Vibration, Alert } from 'react-native';
@@ -14,7 +11,6 @@ import io from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
 import { API_URL, TEMPS_CONFIG, NIVEAUX_CONFIG } from '../config/serveur';
 
-// ── Types ────────────────────────────────────────────────────────────────────
 export type EtatDuel =
   | 'idle'
   | 'creation'
@@ -56,12 +52,7 @@ export type AbandonData = {
   pointsGagnes: number;
 };
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//  HOOK PRINCIPAL
-// ═══════════════════════════════════════════════════════════════════════════════
-
 export const useDuel = (pseudo: string) => {
-  // ── États de jeu ──────────────────────────────────────────────────────────
   const [etat, setEtat] = useState<EtatDuel>('idle');
   const [codeSalle, setCodeSalle] = useState<string>('');
   const [niveau, setNiveau] = useState<number>(1);
@@ -72,35 +63,26 @@ export const useDuel = (pseudo: string) => {
   const [erreur, setErreur] = useState<string>('');
   const [abandonData, setAbandonData] = useState<AbandonData | null>(null);
   const [estHote, setEstHote] = useState<boolean>(false);
-
-  // ── États de progression ───────────────────────────────────────────────────
   const [tempsRestant, setTempsRestant] = useState<number>(0);
   const [compteARebours, setCompteARebours] = useState<number>(0);
   const [essaisRestants, setEssaisRestants] = useState<number>(10);
   const [essaisAdversaire, setEssaisAdversaire] = useState<number>(0);
   const [adversairePseudo, setAdversairePseudo] = useState<string | null>(null);
-
-  // ── États de score ─────────────────────────────────────────────────────────
   const [pointsJoueur, setPointsJoueur] = useState<number>(0);
   const [pointsAdversaire, setPointsAdversaire] = useState<number>(0);
   const [pointsNiveauGagnes, setPointsNiveauGagnes] = useState<number>(0);
-
-  // ── États de contrôle ──────────────────────────────────────────────────────
   const [estConnecte, setEstConnecte] = useState<boolean>(false);
   const [monTour, setMonTour] = useState<boolean>(false);
   const [confirmationEnvoyee, setConfirmationEnvoyee] = useState<boolean>(false);
   const [adversaireAConfirme, setAdversaireAConfirme] = useState<boolean>(false);
-  const [pretEnvoye, setPretEnvoye] = useState<boolean>(false);
 
-  // ── Refs ───────────────────────────────────────────────────────────────────
   const socketRef = useRef<Socket | null>(null);
   const timerAffichageRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const debutPartieRef = useRef<number>(0);
   const dernierTourRef = useRef<boolean>(false);
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // TIMER CLIENT - UNIQUEMENT POUR L'AFFICHAGE
-  // ═══════════════════════════════════════════════════════════════════════════
+  const pretEnvoyeRef = useRef<boolean>(false);
+  const tentativeReconnexionRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const compteurTentativesRef = useRef<number>(0);
 
   const arreterTimerAffichage = useCallback(() => {
     if (timerAffichageRef.current) {
@@ -128,7 +110,6 @@ export const useDuel = (pseudo: string) => {
     arreterTimerAffichage();
   }, [arreterTimerAffichage]);
 
-  // Effet vibration quand c'est notre tour
   useEffect(() => {
     if (monTour && etat === 'en_cours' && !dernierTourRef.current) {
       Vibration.vibrate(200);
@@ -138,17 +119,9 @@ export const useDuel = (pseudo: string) => {
     }
   }, [monTour, etat]);
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  //  CONNEXION SOCKET
-  // ═══════════════════════════════════════════════════════════════════════════
-
   const connecterSocket = useCallback((): Promise<Socket> => {
     const baseUrl = API_URL.replace('/api', '');
     const socketUrl = baseUrl.replace('http://', 'ws://');
-    
-    console.log('🔍 [useDuel] connecterSocket appelé');
-    console.log('🔍 [useDuel] API_URL =', API_URL);
-    console.log('🔍 [useDuel] socketUrl =', socketUrl);
     
     return new Promise((resolve, reject) => {
       if (socketRef.current) {
@@ -164,62 +137,70 @@ export const useDuel = (pseudo: string) => {
       });
 
       const timeout = setTimeout(() => {
-        console.log('❌ [useDuel] Timeout connexion');
         socket.disconnect();
         reject(new Error('Délai de connexion dépassé (10s)'));
       }, 10000);
 
       socket.on('connect', () => {
-        console.log('✅ [useDuel] Socket connecté avec succès, ID:', socket.id);
         clearTimeout(timeout);
         socketRef.current = socket;
+        setEstConnecte(true);
+        compteurTentativesRef.current = 0;
+        if (tentativeReconnexionRef.current) {
+          clearTimeout(tentativeReconnexionRef.current);
+          tentativeReconnexionRef.current = null;
+        }
         resolve(socket);
       });
 
       socket.on('connect_error', (err) => {
-        console.log('❌ [useDuel] Socket connect_error:', err.message || 'serveur indisponible');
         clearTimeout(timeout);
         reject(new Error(`Erreur connexion: ${err.message || 'serveur indisponible'}`));
       });
       
-      socket.on('error', (err) => {
-        console.log('❌ [useDuel] Socket error:', err);
+      socket.on('disconnect', () => {
+        setEstConnecte(false);
+        arreterTimerAffichage();
+        
+        if (etat === 'en_cours' && compteurTentativesRef.current < 3) {
+          compteurTentativesRef.current++;
+          tentativeReconnexionRef.current = setTimeout(() => {
+            connecterSocket().then(socket => {
+              configurerListeners(socket);
+              if (codeSalle) {
+                socket.emit('rejoindre_salle', { code: codeSalle, pseudo });
+              }
+            }).catch(() => {});
+          }, 1000 * Math.pow(2, compteurTentativesRef.current));
+        } else if (etat === 'en_cours') {
+          setEtat('adversaire_parti');
+        }
       });
     });
-  }, [API_URL]);
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  //  CONFIGURATION DES LISTENERS (avec READY CHECK)
-  // ═══════════════════════════════════════════════════════════════════════════
+  }, [API_URL, pseudo, codeSalle, etat, arreterTimerAffichage]);
 
   const configurerListeners = useCallback((socket: Socket) => {
-    // PHASE 1: CRÉATION/REJOINTE DE SALLE
     socket.on('salle_creee', (data: { code: string; niveau: number; estHote: boolean }) => {
-      console.log('✅ [useDuel] Salle créée:', data);
       setCodeSalle(data.code);
       setEstHote(true);
       setNiveau(data.niveau);
       setEtat('attente');
-      setPretEnvoye(false);
+      pretEnvoyeRef.current = false;
     });
 
     socket.on('vous_avez_rejoint', (data: { adversaire: string; estHote: boolean; niveau: number }) => {
-      console.log('✅ [useDuel] Vous avez rejoint la salle:', data);
       setAdversairePseudo(data.adversaire);
       setEstHote(false);
       setNiveau(data.niveau);
       setEtat('attente');
-      setPretEnvoye(false);
+      pretEnvoyeRef.current = false;
     });
 
     socket.on('adversaire_rejoint', (data: { pseudo: string }) => {
-      console.log('✅ [useDuel] Adversaire rejoint:', data);
       setAdversairePseudo(data.pseudo);
     });
 
-    // PHASE 2: READY CHECK ET COMPTE À REBOURS
     socket.on('compte_a_rebours', (data: { valeur: number }) => {
-      console.log('⏰ [useDuel] Compte à rebours:', data.valeur);
       setCompteARebours(data.valeur);
       setEtat('compte_a_rebours');
       Vibration.vibrate(100);
@@ -233,7 +214,6 @@ export const useDuel = (pseudo: string) => {
       pointsNiveau: number;
       temps: number;
     }) => {
-      console.log('✅ [useDuel] Duel lancé:', data);
       setNombreMystere(data.nombreMystere);
       setNiveau(data.niveau);
       setProchainNiveau(data.niveau + 1);
@@ -260,7 +240,6 @@ export const useDuel = (pseudo: string) => {
       setAbandonData(null);
     });
 
-    // PHASE 3: JEU EN COURS
     socket.on('victoire_manche', (data: {
       vainqueur: string;
       niveau: number;
@@ -270,7 +249,6 @@ export const useDuel = (pseudo: string) => {
       prochainNiveau: number;
       pointsProchainNiveau: number;
     }) => {
-      console.log('✅ [useDuel] Victoire manche:', data);
       nettoyerTimers();
       setPointsJoueur(data.pointsJoueur1);
       setPointsAdversaire(data.pointsJoueur2);
@@ -294,7 +272,6 @@ export const useDuel = (pseudo: string) => {
       pointsAdversaire: number;
       adversaire: string;
     }) => {
-      console.log('🏆 [useDuel] Victoire par abandon reçue:', data);
       nettoyerTimers();
       setPointsJoueur(data.pointsJoueur);
       setPointsAdversaire(data.pointsAdversaire);
@@ -310,7 +287,6 @@ export const useDuel = (pseudo: string) => {
       pointsJoueur: number;
       pointsAdversaire: number;
     }) => {
-      console.log('💀 [useDuel] Défaite par abandon reçue:', data);
       nettoyerTimers();
       setPointsJoueur(data.pointsJoueur);
       setPointsAdversaire(data.pointsAdversaire);
@@ -329,7 +305,6 @@ export const useDuel = (pseudo: string) => {
       pointsJoueur2: number;
       temps: number;
     }) => {
-      console.log('✅ [useDuel] Nouvelle manche:', data);
       setNiveau(data.niveau);
       setProchainNiveau(data.niveau + 1);
       setNombreMystere(data.nombreMystere);
@@ -362,7 +337,6 @@ export const useDuel = (pseudo: string) => {
       prochainTour: string;
       temps: number;
     }) => {
-      console.log('🔄 [useDuel] Proposition adversaire:', data);
       setEssaisAdversaire(data.nbPropositions);
       
       const estMonTour = data.prochainTour === pseudo;
@@ -370,6 +344,7 @@ export const useDuel = (pseudo: string) => {
       
       if (estMonTour) {
         demarrerTimerAffichage(data.temps);
+        Vibration.vibrate(100);
       } else {
         arreterTimerAffichage();
         setTempsRestant(0);
@@ -382,7 +357,7 @@ export const useDuel = (pseudo: string) => {
       prochainTour: string;
       temps: number;
     }) => {
-      console.log('⏰ [useDuel] Timeout serveur reçu:', data);
+      Vibration.vibrate([200, 100, 200]);
       
       if (data.joueur === pseudo) {
         setEssaisRestants(data.essaisRestants);
@@ -408,7 +383,6 @@ export const useDuel = (pseudo: string) => {
       pointsJoueur2: number;
       niveau: number;
     }) => {
-      console.log('✅ [useDuel] Duel terminé:', data);
       nettoyerTimers();
       const duree = Math.floor((Date.now() - debutPartieRef.current) / 1000);
       const aGagne = data.vainqueur === pseudo;
@@ -431,50 +405,32 @@ export const useDuel = (pseudo: string) => {
     });
 
     socket.on('adversaire_deconnecte', () => {
-      console.log('⚠️ [useDuel] Adversaire déconnecté');
       nettoyerTimers();
       setEtat('adversaire_parti');
     });
 
-    socket.on('adversaire_a_quitte', (data: { message: string }) => {
-      console.log('🚪 [useDuel] Adversaire a quitté proprement:', data.message);
+    socket.on('adversaire_a_quitte', () => {
       nettoyerTimers();
       setEtat('adversaire_a_quitte');
     });
 
     socket.on('erreur', (data: { message: string }) => {
-      console.log('❌ [useDuel] Erreur reçue:', data.message);
       setErreur(data.message);
       if (data.message === 'Salle introuvable' || data.message === 'Salle déjà en cours') {
         setEtat('idle');
       }
     });
 
-    socket.on('confirmation_enregistree', (data: { message: string }) => {
-      console.log('✅ [useDuel] Confirmation enregistrée:', data.message);
+    socket.on('confirmation_enregistree', () => {
       setConfirmationEnvoyee(true);
     });
 
-    socket.on('adversaire_a_confirme', (data: { message: string }) => {
-      console.log('✅ [useDuel] Adversaire a confirmé:', data.message);
+    socket.on('adversaire_a_confirme', () => {
       setAdversaireAConfirme(true);
     });
-
-    socket.on('connect', () => setEstConnecte(true));
-    socket.on('disconnect', () => {
-      console.log('⚠️ [useDuel] Socket déconnecté');
-      setEstConnecte(false);
-      arreterTimerAffichage();
-      if (etat === 'en_cours') setEtat('adversaire_parti');
-    });
-  }, [pseudo, demarrerTimerAffichage, arreterTimerAffichage, nettoyerTimers, etat]);
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  //  ACTIONS PUBLIQUES
-  // ═══════════════════════════════════════════════════════════════════════════
+  }, [pseudo, demarrerTimerAffichage, arreterTimerAffichage, nettoyerTimers, propositions.length, essaisAdversaire]);
 
   const creerSalle = useCallback(async (niveauChoisi: number) => {
-    console.log('🔍 [useDuel] creerSalle appelé avec niveau:', niveauChoisi);
     setErreur('');
     setEtat('creation');
 
@@ -487,7 +443,6 @@ export const useDuel = (pseudo: string) => {
       }
       
       socket.emit('creer_salle', { pseudo, niveau: niveauChoisi });
-      console.log('✅ [useDuel] creer_salle émis');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Impossible de créer la salle';
       setErreur(message);
@@ -497,7 +452,6 @@ export const useDuel = (pseudo: string) => {
   }, [pseudo, connecterSocket, configurerListeners]);
 
   const rejoindreSalle = useCallback(async (code: string) => {
-    console.log('🔍 [useDuel] rejoindreSalle appelé avec code:', code);
     setErreur('');
     setEtat('rejoindre');
 
@@ -514,12 +468,11 @@ export const useDuel = (pseudo: string) => {
   }, [pseudo, connecterSocket, configurerListeners]);
 
   const envoyerPret = useCallback(() => {
-    if (socketRef.current?.connected && etat === 'attente' && !pretEnvoye) {
-      console.log('✅ [useDuel] Envoi de la confirmation PRET');
+    if (socketRef.current?.connected && etat === 'attente' && !pretEnvoyeRef.current && adversairePseudo) {
       socketRef.current.emit('pret', { pseudo });
-      setPretEnvoye(true);
+      pretEnvoyeRef.current = true;
     }
-  }, [pseudo, etat, pretEnvoye]);
+  }, [pseudo, etat, adversairePseudo]);
 
   const proposerNombre = useCallback((valeur: number) => {
     if (!monTour) {
@@ -528,6 +481,10 @@ export const useDuel = (pseudo: string) => {
     }
     if (etat !== 'en_cours') {
       setErreur("La partie n'est pas en cours");
+      return;
+    }
+    if (essaisRestants <= 0) {
+      setErreur("Vous n'avez plus d'essais");
       return;
     }
 
@@ -568,7 +525,7 @@ export const useDuel = (pseudo: string) => {
     if (valeur === nombreMystere) {
       nettoyerTimers();
     }
-  }, [monTour, etat, niveau, nombreMystere, propositions, tempsRestant, pseudo, nettoyerTimers, arreterTimerAffichage]);
+  }, [monTour, etat, niveau, nombreMystere, propositions, tempsRestant, pseudo, essaisRestants, nettoyerTimers, arreterTimerAffichage]);
 
   const continuerMancheSuivante = useCallback(() => {
     if (socketRef.current?.connected && (etat === 'victoire_manche' || etat === 'defaite_manche')) {
@@ -608,7 +565,7 @@ export const useDuel = (pseudo: string) => {
             setCompteARebours(0);
             setConfirmationEnvoyee(false);
             setAdversaireAConfirme(false);
-            setPretEnvoye(false);
+            pretEnvoyeRef.current = false;
             setAbandonData(null);
             setPointsJoueur(0);
             setPointsAdversaire(0);
@@ -638,7 +595,7 @@ export const useDuel = (pseudo: string) => {
     setCompteARebours(0);
     setConfirmationEnvoyee(false);
     setAdversaireAConfirme(false);
-    setPretEnvoye(false);
+    pretEnvoyeRef.current = false;
     setAbandonData(null);
     setEstHote(false);
     setPointsJoueur(0);
@@ -659,10 +616,13 @@ export const useDuel = (pseudo: string) => {
             
             if (socketRef.current?.connected) {
               socketRef.current.emit('abandonner', { pseudo });
+              setEtat('defaite_par_abandon');
+            } else {
+              Alert.alert("Erreur", "Impossible de contacter le serveur");
+              setEtat('idle');
             }
             
             nettoyerTimers();
-            setEtat('defaite_par_abandon');
             setPropositions([]);
             setResultat(null);
             setCodeSalle('');
@@ -674,7 +634,7 @@ export const useDuel = (pseudo: string) => {
             setCompteARebours(0);
             setConfirmationEnvoyee(false);
             setAdversaireAConfirme(false);
-            setPretEnvoye(false);
+            pretEnvoyeRef.current = false;
           }
         }
       ]
@@ -686,6 +646,10 @@ export const useDuel = (pseudo: string) => {
     if (socketRef.current?.connected) {
       socketRef.current.disconnect();
       socketRef.current = null;
+    }
+    if (tentativeReconnexionRef.current) {
+      clearTimeout(tentativeReconnexionRef.current);
+      tentativeReconnexionRef.current = null;
     }
     setEtat('idle');
     setPropositions([]);
@@ -703,16 +667,19 @@ export const useDuel = (pseudo: string) => {
     setAdversaireAConfirme(false);
     setAbandonData(null);
     setEstHote(false);
-    setPretEnvoye(false);
+    pretEnvoyeRef.current = false;
+    compteurTentativesRef.current = 0;
   }, [arreterTimerAffichage]);
 
   const niveauConfig = NIVEAUX_CONFIG[niveau as keyof typeof NIVEAUX_CONFIG] ?? NIVEAUX_CONFIG[1];
   const derniereProposition = propositions[propositions.length - 1] ?? null;
 
-  // Nettoyage final
   useEffect(() => {
     return () => {
       arreterTimerAffichage();
+      if (tentativeReconnexionRef.current) {
+        clearTimeout(tentativeReconnexionRef.current);
+      }
       if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current = null;
