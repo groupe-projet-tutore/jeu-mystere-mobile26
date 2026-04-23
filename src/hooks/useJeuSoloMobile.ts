@@ -1,4 +1,11 @@
 // src/hooks/useJeuSoloMobile.ts
+// ═══════════════════════════════════════════════════════════════════════════════
+//  HOOK JEU SOLO — Version avec INTERVALLE FIXE + JOKERS
+//  - Intervalle de recherche FIXE pour chaque niveau
+//  - Conservation de toutes les autres fonctionnalités (points, progression, sync)
+//  - Ajout des jokers : Parité et +2 Coups
+// ═══════════════════════════════════════════════════════════════════════════════
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { NIVEAUX } from './../data/niveaux';
@@ -22,11 +29,10 @@ export const useJeuSoloMobile = (pseudo: string = 'Joueur') => {
   const [scoresEnAttente,   setScoresEnAttente]   = useState<number>(0);
   const [chargementInitial, setChargementInitial] = useState<boolean>(true);
 
-  // Ref pour éviter les doubles sauvegardes en cours
   const syncEnCoursRef = useRef(false);
 
   // ══════════════════════════════════════════════════════
-  //  CHARGEMENT INITIAL — restaure la progression locale
+  //  CHARGEMENT INITIAL
   // ══════════════════════════════════════════════════════
   useEffect(() => {
     const charger = async () => {
@@ -37,7 +43,6 @@ export const useJeuSoloMobile = (pseudo: string = 'Joueur') => {
           setNiveauxDebloques(prog.niveauxDebloques);
           setNiveauxCompletes(prog.niveauxCompletes);
         }
-        // Tenter une sync des scores en attente au démarrage
         const result = await syncroniserScoresEnAttente();
         setStatutConnexion(result.statut);
         setScoresEnAttente(result.enAttente);
@@ -52,8 +57,7 @@ export const useJeuSoloMobile = (pseudo: string = 'Joueur') => {
   }, [pseudo]);
 
   // ══════════════════════════════════════════════════════
-  //  SYNC AU RETOUR EN PREMIER PLAN (AppState)
-  //  Quand l'utilisateur revient dans l'appli → retry sync
+  //  SYNC AU RETOUR EN PREMIER PLAN
   // ══════════════════════════════════════════════════════
   useEffect(() => {
     const handleAppState = async (nextState: AppStateStatus) => {
@@ -76,7 +80,7 @@ export const useJeuSoloMobile = (pseudo: string = 'Joueur') => {
   }, []);
 
   // ══════════════════════════════════════════════════════
-  //  SAUVEGARDE PROGRESSION (appelée après chaque victoire)
+  //  SAUVEGARDE PROGRESSION
   // ══════════════════════════════════════════════════════
   const sauvegarderEtat = useCallback(async (
     points: number,
@@ -142,6 +146,17 @@ export const useJeuSoloMobile = (pseudo: string = 'Joueur') => {
   }, [partieEnCours]);
 
   // ══════════════════════════════════════════════════════
+  //  AJOUTER DES ESSAIS (pour le joker +2 Coups)
+  // ══════════════════════════════════════════════════════
+  const ajouterEssais = useCallback((nombreEssais: number) => {
+    if (!partieEnCours || partieEnCours.statut !== 'en_cours') return;
+    
+    setPartieEnCours((prev) => 
+      prev ? { ...prev, essaisRestants: prev.essaisRestants + nombreEssais } : prev
+    );
+  }, [partieEnCours]);
+
+  // ══════════════════════════════════════════════════════
   //  PROPOSER UN NOMBRE
   // ══════════════════════════════════════════════════════
   const proposerNombre = useCallback(
@@ -190,7 +205,6 @@ export const useJeuSoloMobile = (pseudo: string = 'Joueur') => {
         const pointsGagnes = getPointsFixes(niveau.id);
         const dejaComplete = niveauxCompletes.includes(niveau.id);
 
-        // Nouveaux états calculés localement
         const nouveauxPoints    = dejaComplete ? totalPoints : totalPoints + pointsGagnes;
         const nouveauxCompletes = dejaComplete ? niveauxCompletes : [...niveauxCompletes, niveau.id];
         const nouveauxDebloques = niveau.id < 4 && !niveauxDebloques.includes(niveau.id + 1)
@@ -205,10 +219,8 @@ export const useJeuSoloMobile = (pseudo: string = 'Joueur') => {
           setNiveauxDebloques(nouveauxDebloques);
         }
 
-        // ✅ Sauvegarder progression (local + tentative serveur)
         sauvegarderEtat(nouveauxPoints, nouveauxDebloques, nouveauxCompletes);
 
-        // ✅ Enregistrer le score dans la file (local + tentative serveur)
         if (!dejaComplete) {
           setStatutConnexion('sync_en_cours');
           enregistrerScore({
@@ -246,12 +258,11 @@ export const useJeuSoloMobile = (pseudo: string = 'Joueur') => {
     setNiveauxCompletes([]);
     setTotalPoints(0);
     setPartieEnCours(null);
-    // Réinitialiser aussi en local
     sauvegarderEtat(0, [1], []);
   }, [sauvegarderEtat]);
 
   // ══════════════════════════════════════════════════════
-  //  SYNC MANUELLE (bouton retry dans l'UI si besoin)
+  //  SYNC MANUELLE
   // ══════════════════════════════════════════════════════
   const reessayerSync = useCallback(async () => {
     if (syncEnCoursRef.current) return;
@@ -268,28 +279,27 @@ export const useJeuSoloMobile = (pseudo: string = 'Joueur') => {
     }
   }, []);
 
-  // ── Niveaux avec débloqué ──
   const getNiveauxAvecDebloque = () =>
     NIVEAUX.map((n) => ({ ...n, debloque: niveauxDebloques.includes(n.id) }));
 
   return {
-    // Jeu
     partieEnCours,
     niveaux: getNiveauxAvecDebloque(),
     totalPoints,
     chargementInitial,
 
-    // Actions jeu
     demarrerPartie,
     proposerNombre,
     perdreEssai,
+    ajouterEssais,      // ← AJOUTÉ pour le joker +2 Coups
     reinitialiserPartie,
     reinitialiserNiveau,
     reinitialiserProgression,
 
-    // Sync & connexion
     statutConnexion,
     scoresEnAttente,
     reessayerSync,
   };
 };
+
+export default useJeuSoloMobile;

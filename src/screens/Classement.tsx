@@ -2,10 +2,12 @@
 // ═══════════════════════════════════════════════════════════════════
 //  CLASSEMENT — Solo + Duel  •  Version corrigée + Premium
 //  Endpoints exacts du serveur v5.4 :
-//    GET /classement/solo  → JoueurSolo[]
-//    GET /classement/duel  → JoueurDuel[]
+//    GET /api/classement/solo  → JoueurSolo[]
+//    GET /api/classement/duel  → JoueurDuel[]
 //  Tous les champs correspondent exactement à la réponse serveur.
+//  CORRECTION : utilisation correcte de /api/classement/...
 // ═══════════════════════════════════════════════════════════════════
+
 import React, {
   useState, useEffect, useRef, useCallback, useMemo,
 } from 'react';
@@ -32,39 +34,29 @@ const { width: SCREEN_W } = Dimensions.get('window');
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Réponse de GET /classement/solo
+ * Réponse de GET /api/classement/solo
  * Source : classement_solo_global() dans app.py
- *   SELECT pseudo, SUM(points) as total_points,
- *          AVG(essais) as moyenne_essais,
- *          MAX(date) as derniere_date,
- *          MAX(niveau_id) as niveau_max,
- *          COUNT(*) as niveaux_reussis
  */
 type JoueurSolo = {
-  pseudo:         string;   // row[0]
-  totalPoints:    number;   // row[1]  — SUM(points)
-  moyenneEssais:  number;   // row[2]  — AVG(essais) arrondi à 1 décimale
-  derniereDate:   string;   // row[3]  — MAX(date)
-  niveauMax:      number;   // row[4]  — MAX(niveau_id) — valeur 1..4
-  niveauxReussis: number;   // row[5]  — COUNT(*)       — nb de niveaux passés
+  pseudo:         string;
+  totalPoints:    number;
+  moyenneEssais:  number;
+  derniereDate:   string;
+  niveauMax:      number;
+  niveauxReussis: number;
 };
 
 /**
- * Réponse de GET /classement/duel
+ * Réponse de GET /api/classement/duel
  * Source : classement_duel() dans app.py
- *   SELECT pseudo, victoires, defaites,
- *          ROUND(CAST(victoires AS FLOAT) / NULLIF(total_duels,0) * 100, 1) as ratio,
- *          points_total, meilleure_serie
- *   FROM stats_duel WHERE total_duels > 0
- * Le serveur fait `if row[3] else 0` donc ratio vaut toujours un number (jamais null côté JS)
  */
 type JoueurDuel = {
-  pseudo:         string;   // row[0]
-  victoires:      number;   // row[1]
-  defaites:       number;   // row[2]
-  ratio:          number;   // row[3]  — ex: 66.7  (toujours >= 0 côté serveur)
-  points:         number;   // row[4]  — points_total dans stats_duel
-  meilleureSerie: number;   // row[5]
+  pseudo:         string;
+  victoires:      number;
+  defaites:       number;
+  ratio:          number;
+  points:         number;
+  meilleureSerie: number;
 };
 
 type OngletType       = 'solo' | 'duel';
@@ -82,15 +74,8 @@ type Props = {
 // ─────────────────────────────────────────────────────────────────
 const TIMEOUT_MS = 6000;
 
-/**
- * niveauMax est MAX(niveau_id) dans scores — valeurs 1..4
- * Index direct : NIVEAUX_LABELS[niveauMax - 1]
- */
 const NIVEAUX_LABELS = ['Débutant', 'Confirmé', 'Expert', 'Légendaire'];
-
 const MEDAILLES = ['🥇', '🥈', '🥉'];
-
-/** Couleur principale / secondaire pour or, argent, bronze */
 const MEDAILLE_COLORS: [string, string][] = [
   ['#FFD700', '#B8860B'],
   ['#D0D0D8', '#909098'],
@@ -106,34 +91,26 @@ const AVATAR_COLORS = [
 //  UTILITAIRES
 // ─────────────────────────────────────────────────────────────────
 const fetchTimeout = (url: string): Promise<Response> => {
-  const ctrl  = new AbortController();
+  const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
 };
 
-/** Couleur déterministe à partir du pseudo */
 const avatarColor = (pseudo: string): string => {
   let h = 0;
   for (const c of pseudo) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
 };
 
-/** Deux premières lettres en majuscule */
 const initials = (pseudo: string): string =>
   pseudo.substring(0, 2).toUpperCase();
 
-/** Formatte un score : 12 345 ou 12.3K */
 const formatPts = (n: number): string =>
   n >= 10000 ? `${(n / 1000).toFixed(1)}K` : n.toLocaleString();
 
-/**
- * Label de niveau à partir de niveauMax (1..4)
- * Sécurisé : si la valeur est hors plage → 'Débutant'
- */
 const niveauLabel = (niveauMax: number): string =>
   NIVEAUX_LABELS[Math.max(0, Math.min(niveauMax - 1, 3))] ?? 'Débutant';
 
-/** Couleur du win-rate */
 const ratioColor = (r: number): string =>
   r >= 60 ? '#22c55e' : r >= 40 ? '#f59e0b' : '#ef4444';
 
@@ -146,7 +123,7 @@ function usePulse(enabled: boolean) {
     if (!enabled) return;
     const loop = Animated.loop(Animated.sequence([
       Animated.timing(anim, { toValue: 1.025, duration: 1100, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      Animated.timing(anim, { toValue: 1,     duration: 1100, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      Animated.timing(anim, { toValue: 1, duration: 1100, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
     ]));
     loop.start();
     return () => loop.stop();
@@ -155,11 +132,11 @@ function usePulse(enabled: boolean) {
 }
 
 function useEntrance(delay = 0) {
-  const opacity    = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(20)).current;
   useEffect(() => {
     const anim = Animated.parallel([
-      Animated.timing(opacity,    { toValue: 1, duration: 480, delay, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 1, duration: 480, delay, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
       Animated.timing(translateY, { toValue: 0, duration: 480, delay, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
     ]);
     anim.start();
@@ -174,21 +151,19 @@ function useEntrance(delay = 0) {
 export const Classement: React.FC<Props> = ({
   onRetour, pseudo = 'Joueur', onPseudoChange,
 }) => {
-  const [onglet,     setOnglet]     = useState<OngletType>('solo');
-  const [soloData,   setSoloData]   = useState<JoueurSolo[]>([]);
-  const [duelData,   setDuelData]   = useState<JoueurDuel[]>([]);
+  const [onglet, setOnglet] = useState<OngletType>('solo');
+  const [soloData, setSoloData] = useState<JoueurSolo[]>([]);
+  const [duelData, setDuelData] = useState<JoueurDuel[]>([]);
   const [statutSolo, setStatutSolo] = useState<StatutChargement>('idle');
   const [statutDuel, setStatutDuel] = useState<StatutChargement>('idle');
   const [refreshing, setRefreshing] = useState(false);
-  const [search,     setSearch]     = useState('');
-  const [sort,       setSort]       = useState<SortType>('pts');
-  const [trackW,     setTrackW]     = useState(SCREEN_W - 64);
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<SortType>('pts');
+  const [trackW, setTrackW] = useState(SCREEN_W - 64);
 
-  const headerAnim  = useEntrance(0);
-  const tabAnim     = useEntrance(60);
+  const headerAnim = useEntrance(0);
+  const tabAnim = useEntrance(60);
   const contentAnim = useEntrance(130);
-
-  // ── Indicateur d'onglet glissant ──────────────────────────────
   const tabSlide = useRef(new Animated.Value(0)).current;
 
   const switchOnglet = (o: OngletType) => {
@@ -196,13 +171,12 @@ export const Classement: React.FC<Props> = ({
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setOnglet(o);
     Animated.spring(tabSlide, {
-      toValue:  o === 'solo' ? 0 : trackW / 2 - 4,
+      toValue: o === 'solo' ? 0 : trackW / 2 - 4,
       friction: 8, tension: 80, useNativeDriver: true,
     }).start();
   };
 
-  // ── Chargement ────────────────────────────────────────────────
-  // Endpoint exact du serveur : /classement/solo  (pas /api/classement/solo)
+  // Chargement avec les bons endpoints (avec /api/)
   const chargerSolo = useCallback(async () => {
     setStatutSolo('chargement');
     try {
@@ -216,7 +190,6 @@ export const Classement: React.FC<Props> = ({
     }
   }, []);
 
-  // Endpoint exact du serveur : /classement/duel  (pas /api/classement/duel)
   const chargerDuel = useCallback(async () => {
     setStatutDuel('chargement');
     try {
@@ -233,7 +206,7 @@ export const Classement: React.FC<Props> = ({
   useEffect(() => {
     chargerSolo();
     chargerDuel();
-  }, []);
+  }, [pseudo]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -244,17 +217,11 @@ export const Classement: React.FC<Props> = ({
     }
   };
 
-  // ── Données courantes ─────────────────────────────────────────
-  const data   = onglet === 'solo' ? soloData   : duelData;
+  const data = onglet === 'solo' ? soloData : duelData;
   const statut = onglet === 'solo' ? statutSolo : statutDuel;
-
-  /** Position du joueur courant dans le classement actif (0 = absent) */
   const maPosition = (data as any[]).findIndex(j => j.pseudo === pseudo) + 1;
-
-  /** Top 3 pour le podium */
   const top3 = (data as any[]).slice(0, 3);
 
-  /** Liste filtrée + triée */
   const dataFiltree = useMemo(() => {
     let d = [...(data as any[])];
     if (search.trim()) {
@@ -264,7 +231,6 @@ export const Classement: React.FC<Props> = ({
     if (sort === 'az') {
       d = [...d].sort((a, b) => a.pseudo.localeCompare(b.pseudo));
     }
-    // sort === 'pts' : déjà trié par le serveur (ORDER BY total_points/points_total DESC)
     return d;
   }, [data, search, sort]);
 
@@ -276,7 +242,6 @@ export const Classement: React.FC<Props> = ({
       />
       <GridFond />
 
-      {/* ── Header ── */}
       <Animated.View style={[S.header, headerAnim]}>
         <TouchableOpacity onPress={onRetour} style={S.backBtn} activeOpacity={0.7}>
           <Text style={S.backBtnText}>←</Text>
@@ -301,13 +266,9 @@ export const Classement: React.FC<Props> = ({
 
       <Animated.View style={[{ flex: 1 }, tabAnim]}>
 
-        {/* ── Onglets ── */}
+        {/* Onglets */}
         <View style={S.ongletWrap}>
-          <View
-            style={S.ongletTrack}
-            onLayout={e => setTrackW(e.nativeEvent.layout.width)}
-          >
-            {/* Pastille glissante */}
+          <View style={S.ongletTrack} onLayout={e => setTrackW(e.nativeEvent.layout.width)}>
             <Animated.View
               style={[
                 S.ongletPastille,
@@ -350,7 +311,7 @@ export const Classement: React.FC<Props> = ({
         >
           <Animated.View style={contentAnim}>
 
-            {/* ── Bannière ma position ── */}
+            {/* Bannière ma position */}
             {statut === 'ok' && maPosition > 0 && (
               <BannierePosition
                 pseudo={pseudo}
@@ -362,12 +323,12 @@ export const Classement: React.FC<Props> = ({
               />
             )}
 
-            {/* ── Podium Top 3 ── */}
+            {/* Podium Top 3 */}
             {statut === 'ok' && top3.length === 3 && (
               <Podium top3={top3} onglet={onglet} pseudo={pseudo} />
             )}
 
-            {/* ── Barre recherche + tri ── */}
+            {/* Barre recherche + tri */}
             {statut === 'ok' && data.length > 0 && (
               <View style={S.searchRow}>
                 <View style={S.searchBox}>
@@ -386,16 +347,16 @@ export const Classement: React.FC<Props> = ({
                   )}
                 </View>
                 <BoutonTri label="PTS" actif={sort === 'pts'} onPress={() => setSort('pts')} />
-                <BoutonTri label="A–Z" actif={sort === 'az'}  onPress={() => setSort('az')}  />
+                <BoutonTri label="A–Z" actif={sort === 'az'} onPress={() => setSort('az')} />
               </View>
             )}
 
-            {/* ── États ── */}
+            {/* États */}
             {statut === 'chargement' && <EcranChargement />}
             {statut === 'hors_ligne' && (
               <EcranEtat
                 emoji="📡" titre="Hors ligne"
-                texte={'Impossible de joindre le serveur.\nVérifie ta connexion internet.'}
+                texte="Impossible de joindre le serveur. Vérifie ta connexion internet."
                 onReessayer={onglet === 'solo' ? chargerSolo : chargerDuel}
               />
             )}
@@ -413,9 +374,8 @@ export const Classement: React.FC<Props> = ({
               />
             )}
 
-            {/* ── Liste ── */}
+            {/* Liste */}
             {statut === 'ok' && dataFiltree.map((joueur: any, i: number) => {
-              // La position réelle dans le classement non-filtré (pour la médaille correcte)
               const posReelle = (data as any[]).indexOf(joueur) + 1;
               return onglet === 'solo' ? (
                 <CarteClassementSolo
@@ -478,25 +438,21 @@ const PointClignotant: React.FC = () => {
    BANNIÈRE MA POSITION
 ════════════════════════════════════════════════════════════════ */
 const BannierePosition: React.FC<{
-  pseudo:   string;
+  pseudo: string;
   position: number;
-  total:    number;
-  onglet:   OngletType;
+  total: number;
+  onglet: OngletType;
   dataSolo: JoueurSolo | null;
   dataDuel: JoueurDuel | null;
 }> = ({ pseudo, position, total, onglet, dataSolo, dataDuel }) => {
-  const pulse  = usePulse(position <= 3);
+  const pulse = usePulse(position <= 3);
   const entree = useEntrance(0);
-
-  const isPodium   = position <= 3;
-  const medaille   = isPodium ? MEDAILLES[position - 1] : null;
+  const isPodium = position <= 3;
+  const medaille = isPodium ? MEDAILLES[position - 1] : null;
   const accentCoul = isPodium ? MEDAILLE_COLORS[position - 1][0] : '#8b5cf6';
 
   return (
-    <Animated.View style={[
-      entree,
-      { marginBottom: 16, transform: [...entree.transform, { scale: pulse }] },
-    ]}>
+    <Animated.View style={[entree, { marginBottom: 16, transform: [...entree.transform, { scale: pulse }] }]}>
       <LinearGradient
         colors={isPodium ? ['#1c1a08', '#0d1520'] : ['#110d22', '#090d1e']}
         style={[S.banniere, { borderColor: `${accentCoul}30` }]}
@@ -511,20 +467,14 @@ const BannierePosition: React.FC<{
         <View style={S.banniereRight}>
           {onglet === 'solo' && dataSolo && (
             <>
-              <Text style={[S.banniereVal, { color: accentCoul }]}>
-                {formatPts(dataSolo.totalPoints)}
-              </Text>
+              <Text style={[S.banniereVal, { color: accentCoul }]}>{formatPts(dataSolo.totalPoints)}</Text>
               <Text style={S.banniereValLabel}>points</Text>
               <Text style={S.banniereRangLabel}>{position} / {total}</Text>
             </>
           )}
           {onglet === 'duel' && dataDuel && (
             <>
-              {/* victoires depuis stats_duel */}
-              <Text style={[S.banniereVal, { color: accentCoul }]}>
-                {dataDuel.victoires}V
-              </Text>
-              {/* ratio = ROUND(victoires/total_duels*100, 1) depuis stats_duel */}
+              <Text style={[S.banniereVal, { color: accentCoul }]}>{dataDuel.victoires}V</Text>
               <Text style={S.banniereValLabel}>{dataDuel.ratio}% WR</Text>
               <Text style={S.banniereRangLabel}>{position} / {total}</Text>
             </>
@@ -539,7 +489,7 @@ const BannierePosition: React.FC<{
    PODIUM TOP 3
 ════════════════════════════════════════════════════════════════ */
 const Podium: React.FC<{
-  top3:   any[];
+  top3: any[];
   onglet: OngletType;
   pseudo: string;
 }> = ({ top3, onglet, pseudo }) => {
@@ -555,13 +505,11 @@ const Podium: React.FC<{
           if (!joueur) return null;
           const rang = rangs[i];
           const isMe = joueur.pseudo === pseudo;
-          // Points selon l'onglet — champs exacts du serveur
-          const pts  = onglet === 'solo'
+          const pts = onglet === 'solo'
             ? (joueur as JoueurSolo).totalPoints
             : (joueur as JoueurDuel).points;
           const [c1] = MEDAILLE_COLORS[rang - 1];
-          // Sous-titre avec les champs réels du serveur
-          const sub  = onglet === 'solo'
+          const sub = onglet === 'solo'
             ? `${(joueur as JoueurSolo).niveauxReussis}/4 niveaux • moy. ${(joueur as JoueurSolo).moyenneEssais}`
             : `${(joueur as JoueurDuel).victoires}V ${(joueur as JoueurDuel).defaites}D — ${(joueur as JoueurDuel).ratio}% WR`;
 
@@ -580,18 +528,15 @@ const Podium: React.FC<{
 };
 
 const PodiumColonne: React.FC<{
-  joueur:  any; rang: number; isMe: boolean;
+  joueur: any; rang: number; isMe: boolean;
   pts: number; sub: string; couleur: string;
   hauteur: number; delay: number;
 }> = ({ joueur, rang, isMe, pts, sub, couleur, hauteur, delay }) => {
   const entree = useEntrance(delay);
-  const pulse  = usePulse(rang === 1);
+  const pulse = usePulse(rang === 1);
 
   return (
-    <Animated.View style={[
-      S.podiumColonne, entree,
-      rang === 1 && { transform: [...entree.transform, { scale: pulse }] },
-    ]}>
+    <Animated.View style={[S.podiumColonne, entree, rang === 1 && { transform: [...entree.transform, { scale: pulse }] }]}>
       {rang === 1 && <Text style={S.podiumCouronne}>👑</Text>}
       <Text style={S.podiumMedaille}>{MEDAILLES[rang - 1]}</Text>
       <LinearGradient
@@ -606,7 +551,7 @@ const PodiumColonne: React.FC<{
         <View style={S.podiumCarteInner}>
           <View style={[S.podiumAvatar, {
             backgroundColor: avatarColor(joueur.pseudo) + '28',
-            borderColor:     avatarColor(joueur.pseudo) + '60',
+            borderColor: avatarColor(joueur.pseudo) + '60',
           }]}>
             <Text style={[S.podiumAvatarTxt, { color: avatarColor(joueur.pseudo) }]}>
               {initials(joueur.pseudo)}
@@ -627,36 +572,34 @@ const PodiumColonne: React.FC<{
 
 /* ════════════════════════════════════════════════════════════════
    CARTE CLASSEMENT SOLO
-   Champs : pseudo · totalPoints · moyenneEssais · niveauMax · niveauxReussis
 ════════════════════════════════════════════════════════════════ */
 const CarteClassementSolo: React.FC<{
   joueur: JoueurSolo; position: number; estMoi: boolean; index: number;
 }> = ({ joueur, position, estMoi, index }) => {
-  const opac   = useRef(new Animated.Value(0)).current;
-  const scale  = useRef(new Animated.Value(0.96)).current;
+  const opac = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(0.96)).current;
   const slideX = useRef(new Animated.Value(-12)).current;
-  const press  = useRef(new Animated.Value(1)).current;
+  const press = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     const delay = Math.min(index * 32, 640);
     const a = Animated.parallel([
-      Animated.timing(opac,   { toValue: 1, delay, duration: 340, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      Animated.spring(scale,  { toValue: 1, delay, friction: 8, tension: 80, useNativeDriver: true }),
+      Animated.timing(opac, { toValue: 1, delay, duration: 340, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.spring(scale, { toValue: 1, delay, friction: 8, tension: 80, useNativeDriver: true }),
       Animated.timing(slideX, { toValue: 0, delay, duration: 340, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
     ]);
     a.start();
     return () => a.stop();
   }, []);
 
-  const isPodium   = position <= 3;
-  const [coul]     = isPodium ? MEDAILLE_COLORS[position - 1] : ['#06b6d4', ''];
+  const isPodium = position <= 3;
+  const [coul] = isPodium ? MEDAILLE_COLORS[position - 1] : ['#06b6d4', ''];
   const accentCoul = estMoi ? '#8b5cf6' : isPodium ? coul : '#1e3a5c';
-  // niveauMax (1..4) → label via NIVEAUX_LABELS
-  const label      = niveauLabel(joueur.niveauMax);
+  const label = niveauLabel(joueur.niveauMax);
   const niveauCoul = joueur.niveauMax >= 4 ? '#FFD700'
-                   : joueur.niveauMax >= 3 ? '#8b5cf6'
-                   : joueur.niveauMax >= 2 ? '#06b6d4'
-                   : '#4b5563';
+    : joueur.niveauMax >= 3 ? '#8b5cf6'
+    : joueur.niveauMax >= 2 ? '#06b6d4'
+    : '#4b5563';
 
   return (
     <Animated.View style={{
@@ -666,55 +609,45 @@ const CarteClassementSolo: React.FC<{
     }}>
       <TouchableOpacity
         activeOpacity={1}
-        onPressIn  ={() => Animated.spring(press, { toValue: 0.975, friction: 10, tension: 200, useNativeDriver: true }).start()}
-        onPressOut ={() => Animated.spring(press, { toValue: 1,     friction: 10, tension: 200, useNativeDriver: true }).start()}
+        onPressIn={() => Animated.spring(press, { toValue: 0.975, friction: 10, tension: 200, useNativeDriver: true }).start()}
+        onPressOut={() => Animated.spring(press, { toValue: 1, friction: 10, tension: 200, useNativeDriver: true }).start()}
       >
         <LinearGradient
-          colors={estMoi ? ['#150e28','#0e0d1e'] : isPodium ? ['#141820','#0c1018'] : ['#0e1320','#080c18']}
+          colors={estMoi ? ['#150e28', '#0e0d1e'] : isPodium ? ['#141820', '#0c1018'] : ['#0e1320', '#080c18']}
           style={[S.carte, { borderColor: `${accentCoul}40` }, estMoi && S.carteMoi]}
         >
           <View style={[S.carteAccent, { backgroundColor: accentCoul }]} />
-
           <View style={[S.carteRang, { backgroundColor: `${accentCoul}16` }]}>
             {isPodium
               ? <Text style={S.carteRangEmoji}>{MEDAILLES[position - 1]}</Text>
               : <Text style={[S.carteRangNum, estMoi && { color: '#8b5cf6' }]}>#{position}</Text>
             }
           </View>
-
           <View style={[S.carteAvatar, {
             backgroundColor: avatarColor(joueur.pseudo) + '20',
-            borderColor:     avatarColor(joueur.pseudo) + '50',
+            borderColor: avatarColor(joueur.pseudo) + '50',
           }]}>
             <Text style={[S.carteAvatarTxt, { color: avatarColor(joueur.pseudo) }]}>
               {initials(joueur.pseudo)}
             </Text>
           </View>
-
           <View style={S.carteInfo}>
             <View style={S.carteInfoLigne}>
               <Text style={[S.cartePseudo, estMoi && { color: '#8b5cf6' }]} numberOfLines={1}>
                 {joueur.pseudo}{estMoi ? '  ✦' : ''}
               </Text>
-              {/* Badge : niveauMax converti en label Débutant/Confirmé/Expert/Légendaire */}
               <View style={[S.badge, { backgroundColor: `${niveauCoul}18`, borderColor: `${niveauCoul}40` }]}>
                 <Text style={[S.badgeTxt, { color: niveauCoul }]}>{label.toUpperCase()}</Text>
               </View>
             </View>
             <View style={S.carteStats}>
-              {/* niveauxReussis = COUNT(*) dans scores — nb de niveaux distincts terminés */}
               <MiniStat val={`${joueur.niveauxReussis}/4`} label="niveaux" />
               <View style={S.sep} />
-              {/* moyenneEssais = AVG(essais) arrondi à 1 décimale par le serveur */}
               <MiniStat val={`${joueur.moyenneEssais}`} label="moy. essais" />
             </View>
           </View>
-
-          {/* totalPoints = SUM(points) dans scores */}
           <View style={S.cartePts}>
-            <Text style={[S.cartePtsVal, isPodium && { color: coul }]}>
-              {formatPts(joueur.totalPoints)}
-            </Text>
+            <Text style={[S.cartePtsVal, isPodium && { color: coul }]}>{formatPts(joueur.totalPoints)}</Text>
             <Text style={S.cartePtsLabel}>PTS</Text>
           </View>
         </LinearGradient>
@@ -725,36 +658,32 @@ const CarteClassementSolo: React.FC<{
 
 /* ════════════════════════════════════════════════════════════════
    CARTE CLASSEMENT DUEL
-   Champs : pseudo · victoires · defaites · ratio · points · meilleureSerie
 ════════════════════════════════════════════════════════════════ */
 const CarteClassementDuel: React.FC<{
   joueur: JoueurDuel; position: number; estMoi: boolean; index: number;
 }> = ({ joueur, position, estMoi, index }) => {
-  const opac    = useRef(new Animated.Value(0)).current;
-  const scale   = useRef(new Animated.Value(0.96)).current;
-  const slideX  = useRef(new Animated.Value(-12)).current;
-  const press   = useRef(new Animated.Value(1)).current;
-  // useNativeDriver: false car on anime 'width' (propriété de layout)
+  const opac = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(0.96)).current;
+  const slideX = useRef(new Animated.Value(-12)).current;
+  const press = useRef(new Animated.Value(1)).current;
   const barAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const delay = Math.min(index * 32, 640);
     const a = Animated.parallel([
-      Animated.timing(opac,    { toValue: 1,                  delay,           duration: 340, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      Animated.spring(scale,   { toValue: 1,                  delay,           friction: 8, tension: 80,                        useNativeDriver: true }),
-      Animated.timing(slideX,  { toValue: 0,                  delay,           duration: 340, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      // ratio est toujours 0..100 (côté serveur déjà converti en %)
+      Animated.timing(opac, { toValue: 1, delay, duration: 340, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.spring(scale, { toValue: 1, delay, friction: 8, tension: 80, useNativeDriver: true }),
+      Animated.timing(slideX, { toValue: 0, delay, duration: 340, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
       Animated.timing(barAnim, { toValue: joueur.ratio / 100, delay: delay + 220, duration: 750, easing: Easing.out(Easing.cubic), useNativeDriver: false }),
     ]);
     a.start();
     return () => a.stop();
   }, []);
 
-  const isPodium   = position <= 3;
-  const [coul]     = isPodium ? MEDAILLE_COLORS[position - 1] : ['#06b6d4', ''];
+  const isPodium = position <= 3;
+  const [coul] = isPodium ? MEDAILLE_COLORS[position - 1] : ['#06b6d4', ''];
   const accentCoul = estMoi ? '#8b5cf6' : isPodium ? coul : '#1e3a5c';
-  const rc         = ratioColor(joueur.ratio);
-
+  const rc = ratioColor(joueur.ratio);
   const barWidth = barAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
 
   return (
@@ -765,66 +694,53 @@ const CarteClassementDuel: React.FC<{
     }}>
       <TouchableOpacity
         activeOpacity={1}
-        onPressIn  ={() => Animated.spring(press, { toValue: 0.975, friction: 10, tension: 200, useNativeDriver: true }).start()}
-        onPressOut ={() => Animated.spring(press, { toValue: 1,     friction: 10, tension: 200, useNativeDriver: true }).start()}
+        onPressIn={() => Animated.spring(press, { toValue: 0.975, friction: 10, tension: 200, useNativeDriver: true }).start()}
+        onPressOut={() => Animated.spring(press, { toValue: 1, friction: 10, tension: 200, useNativeDriver: true }).start()}
       >
         <LinearGradient
-          colors={estMoi ? ['#150e28','#0e0d1e'] : isPodium ? ['#141820','#0c1018'] : ['#0e1320','#080c18']}
+          colors={estMoi ? ['#150e28', '#0e0d1e'] : isPodium ? ['#141820', '#0c1018'] : ['#0e1320', '#080c18']}
           style={[S.carte, { borderColor: `${accentCoul}40` }, estMoi && S.carteMoi]}
         >
           <View style={[S.carteAccent, { backgroundColor: accentCoul }]} />
-
           <View style={[S.carteRang, { backgroundColor: `${accentCoul}16` }]}>
             {isPodium
               ? <Text style={S.carteRangEmoji}>{MEDAILLES[position - 1]}</Text>
               : <Text style={[S.carteRangNum, estMoi && { color: '#8b5cf6' }]}>#{position}</Text>
             }
           </View>
-
           <View style={[S.carteAvatar, {
             backgroundColor: avatarColor(joueur.pseudo) + '20',
-            borderColor:     avatarColor(joueur.pseudo) + '50',
+            borderColor: avatarColor(joueur.pseudo) + '50',
           }]}>
             <Text style={[S.carteAvatarTxt, { color: avatarColor(joueur.pseudo) }]}>
               {initials(joueur.pseudo)}
             </Text>
           </View>
-
           <View style={S.carteInfo}>
             <View style={S.carteInfoLigne}>
               <Text style={[S.cartePseudo, estMoi && { color: '#8b5cf6' }]} numberOfLines={1}>
                 {joueur.pseudo}{estMoi ? '  ✦' : ''}
-                {/* meilleureSerie depuis stats_duel */}
                 {joueur.meilleureSerie > 1 && (
-                  <Text style={{ color: '#f59e0b', fontSize: 11 }}>
-                    {' '}🔥 {joueur.meilleureSerie}
-                  </Text>
+                  <Text style={{ color: '#f59e0b', fontSize: 11 }}> 🔥 {joueur.meilleureSerie}</Text>
                 )}
               </Text>
-              {/* ratio = ROUND(victoires/total_duels*100, 1) — toujours un number */}
               <View style={[S.badge, { backgroundColor: `${rc}18`, borderColor: `${rc}40` }]}>
                 <Text style={[S.badgeTxt, { color: rc }]}>{joueur.ratio}% WR</Text>
               </View>
             </View>
             <View style={S.carteStats}>
-              <MiniStat val={`${joueur.victoires}`}                    label="V"     color="#22c55e" />
+              <MiniStat val={`${joueur.victoires}`} label="V" color="#22c55e" />
               <View style={S.sep} />
-              <MiniStat val={`${joueur.defaites}`}                     label="D"     color="#ef4444" />
+              <MiniStat val={`${joueur.defaites}`} label="D" color="#ef4444" />
               <View style={S.sep} />
-              {/* total duels calculé côté client (victoires + defaites) */}
-              <MiniStat val={`${joueur.victoires + joueur.defaites}`}  label="duels" />
+              <MiniStat val={`${joueur.victoires + joueur.defaites}`} label="duels" />
             </View>
-            {/* Barre win-rate animée */}
             <View style={S.barreTrack}>
               <Animated.View style={[S.barreFill, { width: barWidth, backgroundColor: rc }]} />
             </View>
           </View>
-
-          {/* points = points_total dans stats_duel */}
           <View style={S.cartePts}>
-            <Text style={[S.cartePtsVal, isPodium && { color: coul }]}>
-              {formatPts(joueur.points)}
-            </Text>
+            <Text style={[S.cartePtsVal, isPodium && { color: coul }]}>{formatPts(joueur.points)}</Text>
             <Text style={S.cartePtsLabel}>PTS</Text>
           </View>
         </LinearGradient>
@@ -881,15 +797,13 @@ const EcranEtat: React.FC<{
 ════════════════════════════════════════════════════════════════ */
 const S = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#030712' },
-
   grilleLigne: { backgroundColor: 'rgba(6,182,212,0.035)' },
-  orbe:        { position: 'absolute', width: 220, height: 220, borderRadius: 110, opacity: 0.06 },
+  orbe: { position: 'absolute', width: 220, height: 220, borderRadius: 110, opacity: 0.06 },
 
-  // Header
   header: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     paddingHorizontal: 16,
-    paddingTop:    Platform.OS === 'ios' ? 54 : 18,
+    paddingTop: Platform.OS === 'ios' ? 54 : 18,
     paddingBottom: 14,
     borderBottomWidth: 1, borderBottomColor: 'rgba(6,182,212,0.12)',
   },
@@ -900,16 +814,15 @@ const S = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   backBtnText: { color: C.textPrimary, fontSize: 20, fontWeight: '700' },
-  headerMid:   { flex: 1 },
+  headerMid: { flex: 1 },
   headerTitle: {
     color: C.textPrimary, fontSize: 19, fontWeight: '900', letterSpacing: 4,
     textShadowColor: 'rgba(6,182,212,0.5)', textShadowRadius: 10,
   },
   liveBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 },
-  liveText:  { color: '#06b6d4', fontSize: 10, letterSpacing: 2 },
+  liveText: { color: '#06b6d4', fontSize: 10, letterSpacing: 2 },
   pointVert: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#06b6d4' },
 
-  // Onglets
   ongletWrap: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 },
   ongletTrack: {
     flexDirection: 'row', height: 48,
@@ -924,8 +837,8 @@ const S = StyleSheet.create({
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     borderRadius: 12, borderWidth: 1, borderColor: 'rgba(6,182,212,0.45)',
   },
-  ongletBtn:      { flex: 1, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
-  ongletTxt:      { color: '#374151', fontSize: 13, fontWeight: '800', letterSpacing: 2 },
+  ongletBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
+  ongletTxt: { color: '#374151', fontSize: 13, fontWeight: '800', letterSpacing: 2 },
   ongletTxtActif: {
     color: C.textPrimary, fontWeight: '900',
     textShadowColor: 'rgba(6,182,212,0.5)', textShadowRadius: 8,
@@ -933,43 +846,40 @@ const S = StyleSheet.create({
 
   scrollContent: { paddingHorizontal: 16, paddingTop: 12 },
 
-  // Bannière
   banniere: {
     borderRadius: 18, borderWidth: 1,
     padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12,
     marginBottom: 16, overflow: 'hidden',
   },
-  banniereAccent:    { position: 'absolute', left: 0, top: 0, bottom: 0, width: 3 },
-  banniereMedaille:  { fontSize: 24 },
-  banniereLabel:     { color: '#374151', fontSize: 9, letterSpacing: 2.5, fontWeight: '800' },
-  bannierePseudo:    { color: C.textPrimary, fontSize: 17, fontWeight: '900', marginTop: 2, letterSpacing: 0.5 },
-  banniereRight:     { alignItems: 'flex-end' },
-  banniereVal:       { fontSize: 21, fontWeight: '900' },
-  banniereValLabel:  { color: '#4b5563', fontSize: 10, letterSpacing: 1 },
+  banniereAccent: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 3 },
+  banniereMedaille: { fontSize: 24 },
+  banniereLabel: { color: '#374151', fontSize: 9, letterSpacing: 2.5, fontWeight: '800' },
+  bannierePseudo: { color: C.textPrimary, fontSize: 17, fontWeight: '900', marginTop: 2, letterSpacing: 0.5 },
+  banniereRight: { alignItems: 'flex-end' },
+  banniereVal: { fontSize: 21, fontWeight: '900' },
+  banniereValLabel: { color: '#4b5563', fontSize: 10, letterSpacing: 1 },
   banniereRangLabel: { color: '#1f2937', fontSize: 10, letterSpacing: 1, marginTop: 2 },
 
-  // Podium
   podiumConteneur: { marginBottom: 24 },
   podiumTitre: {
     color: '#1a3050', fontSize: 11, letterSpacing: 6,
     textAlign: 'center', marginBottom: 14, fontWeight: '800',
   },
-  podiumRangee:    { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
-  podiumColonne:   { flex: 1, alignItems: 'center' },
-  podiumCouronne:  { fontSize: 22, marginBottom: 2 },
-  podiumMedaille:  { fontSize: 28, marginBottom: 8, textShadowColor: 'rgba(255,215,0,0.35)', textShadowRadius: 10 },
-  podiumCarte:     { width: '100%', borderRadius: 16, borderWidth: 1, overflow: 'hidden', position: 'relative', minHeight: 150 },
-  podiumBarre:     { position: 'absolute', left: 0, right: 0, bottom: 0, opacity: 0.14 },
-  podiumCarteInner:{ padding: 10, alignItems: 'center', zIndex: 1 },
-  podiumAvatar:    { width: 38, height: 38, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  podiumRangee: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
+  podiumColonne: { flex: 1, alignItems: 'center' },
+  podiumCouronne: { fontSize: 22, marginBottom: 2 },
+  podiumMedaille: { fontSize: 28, marginBottom: 8, textShadowColor: 'rgba(255,215,0,0.35)', textShadowRadius: 10 },
+  podiumCarte: { width: '100%', borderRadius: 16, borderWidth: 1, overflow: 'hidden', position: 'relative', minHeight: 150 },
+  podiumBarre: { position: 'absolute', left: 0, right: 0, bottom: 0, opacity: 0.14 },
+  podiumCarteInner: { padding: 10, alignItems: 'center', zIndex: 1 },
+  podiumAvatar: { width: 38, height: 38, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
   podiumAvatarTxt: { fontSize: 13, fontWeight: '900', letterSpacing: 1 },
-  podiumPseudo:    { fontSize: 11, fontWeight: '900', letterSpacing: 0.3, textAlign: 'center', width: '100%' },
-  podiumPts:       { fontSize: 17, fontWeight: '900', marginTop: 5 },
-  podiumPtsLabel:  { color: '#374151', fontSize: 8, letterSpacing: 2 },
-  podiumSub:       { color: '#1f2937', fontSize: 8, marginTop: 5, letterSpacing: 0.4, textAlign: 'center' },
-  podiumLueur:     { position: 'absolute', bottom: -35, alignSelf: 'center', width: 50, height: 50, borderRadius: 25, opacity: 0.18 },
+  podiumPseudo: { fontSize: 11, fontWeight: '900', letterSpacing: 0.3, textAlign: 'center', width: '100%' },
+  podiumPts: { fontSize: 17, fontWeight: '900', marginTop: 5 },
+  podiumPtsLabel: { color: '#374151', fontSize: 8, letterSpacing: 2 },
+  podiumSub: { color: '#1f2937', fontSize: 8, marginTop: 5, letterSpacing: 0.4, textAlign: 'center' },
+  podiumLueur: { position: 'absolute', bottom: -35, alignSelf: 'center', width: 50, height: 50, borderRadius: 25, opacity: 0.18 },
 
-  // Recherche
   searchRow: { flexDirection: 'row', gap: 8, marginBottom: 10, alignItems: 'center' },
   searchBox: {
     flex: 1, flexDirection: 'row', alignItems: 'center',
@@ -980,54 +890,49 @@ const S = StyleSheet.create({
   searchIcone: { fontSize: 13, marginRight: 6 },
   searchInput: { flex: 1, color: C.textPrimary, fontSize: 14, height: 42 },
   searchClear: { color: '#374151', fontSize: 14, paddingHorizontal: 4 },
-  triBtn:      { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', backgroundColor: '#080d1a' },
+  triBtn: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', backgroundColor: '#080d1a' },
   triBtnActif: { borderColor: 'rgba(6,182,212,0.45)', backgroundColor: 'rgba(6,182,212,0.07)' },
-  triTxt:      { color: '#374151', fontSize: 11, fontWeight: '800', letterSpacing: 1.5 },
+  triTxt: { color: '#374151', fontSize: 11, fontWeight: '800', letterSpacing: 1.5 },
   triTxtActif: { color: '#06b6d4' },
 
-  // Carte
   carte: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     borderRadius: 18, padding: 14, borderWidth: 1,
     overflow: 'hidden', position: 'relative',
   },
-  carteMoi:      { borderColor: 'rgba(139,92,246,0.45)' },
-  carteAccent:   { position: 'absolute', left: 0, top: 0, bottom: 0, width: 3 },
-  carteRang:     { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  carteRangEmoji:{ fontSize: 22 },
-  carteRangNum:  { color: '#374151', fontSize: 14, fontWeight: '900' },
-  carteAvatar:   { width: 40, height: 40, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  carteAvatarTxt:{ fontSize: 13, fontWeight: '900', letterSpacing: 1 },
-  carteInfo:     { flex: 1, minWidth: 0 },
-  carteInfoLigne:{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
-  cartePseudo:   { color: C.textPrimary, fontSize: 15, fontWeight: '800', flex: 1, letterSpacing: 0.3 },
-  carteStats:    { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  sep:           { width: 1, height: 16, backgroundColor: 'rgba(255,255,255,0.06)' },
-  cartePts:      { alignItems: 'flex-end', minWidth: 58 },
-  cartePtsVal:   { color: C.textPrimary, fontSize: 17, fontWeight: '900' },
+  carteMoi: { borderColor: 'rgba(139,92,246,0.45)' },
+  carteAccent: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 3 },
+  carteRang: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  carteRangEmoji: { fontSize: 22 },
+  carteRangNum: { color: '#374151', fontSize: 14, fontWeight: '900' },
+  carteAvatar: { width: 40, height: 40, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  carteAvatarTxt: { fontSize: 13, fontWeight: '900', letterSpacing: 1 },
+  carteInfo: { flex: 1, minWidth: 0 },
+  carteInfoLigne: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  cartePseudo: { color: C.textPrimary, fontSize: 15, fontWeight: '800', flex: 1, letterSpacing: 0.3 },
+  carteStats: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  sep: { width: 1, height: 16, backgroundColor: 'rgba(255,255,255,0.06)' },
+  cartePts: { alignItems: 'flex-end', minWidth: 58 },
+  cartePtsVal: { color: C.textPrimary, fontSize: 17, fontWeight: '900' },
   cartePtsLabel: { color: '#1f2937', fontSize: 9, letterSpacing: 2, marginTop: 1 },
 
-  // Badge
-  badge:    { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 7, borderWidth: 1 },
+  badge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 7, borderWidth: 1 },
   badgeTxt: { fontSize: 8, fontWeight: '900', letterSpacing: 1 },
 
-  // Barre win-rate
   barreTrack: { height: 3, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 2, marginTop: 6, overflow: 'hidden' },
-  barreFill:  { height: '100%', borderRadius: 2 },
+  barreFill: { height: '100%', borderRadius: 2 },
 
-  // MiniStat
-  miniStat:      { alignItems: 'center' },
-  miniStatVal:   { color: '#94a3b8', fontSize: 12, fontWeight: '800' },
+  miniStat: { alignItems: 'center' },
+  miniStatVal: { color: '#94a3b8', fontSize: 12, fontWeight: '800' },
   miniStatLabel: { color: '#1f2937', fontSize: 8, letterSpacing: 1, marginTop: 1 },
 
-  // États
-  etatCentre:        { alignItems: 'center', paddingTop: 64, paddingHorizontal: 24 },
-  etatEmoji:         { fontSize: 52, marginBottom: 16 },
-  etatTitre:         { color: C.textPrimary, fontSize: 20, fontWeight: '900', marginBottom: 8, textAlign: 'center', letterSpacing: 1 },
-  etatTexte:         { color: C.textBody, fontSize: 14, textAlign: 'center', lineHeight: 22, marginBottom: 28 },
-  btnReessayer:      { borderRadius: 16, overflow: 'hidden', minWidth: 160 },
+  etatCentre: { alignItems: 'center', paddingTop: 64, paddingHorizontal: 24 },
+  etatEmoji: { fontSize: 52, marginBottom: 16 },
+  etatTitre: { color: C.textPrimary, fontSize: 20, fontWeight: '900', marginBottom: 8, textAlign: 'center', letterSpacing: 1 },
+  etatTexte: { color: C.textBody, fontSize: 14, textAlign: 'center', lineHeight: 22, marginBottom: 28 },
+  btnReessayer: { borderRadius: 16, overflow: 'hidden', minWidth: 160 },
   btnReessayerInner: { paddingVertical: 14, paddingHorizontal: 24, alignItems: 'center' },
-  btnReessayerTxt:   { color: C.bgDeep, fontSize: 15, fontWeight: '900', letterSpacing: 1 },
+  btnReessayerTxt: { color: C.bgDeep, fontSize: 15, fontWeight: '900', letterSpacing: 1 },
 });
 
 export default Classement;

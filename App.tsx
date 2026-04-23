@@ -1,4 +1,11 @@
 // src/App.tsx
+// ═══════════════════════════════════════════════════════════════════════════════
+//  APPLICATION PRINCIPALE — Version simplifiée
+//  - Suppression du classement général du menu principal
+//  - Les classements sont accessibles depuis MondeSolo et MondeDuel
+//  - Gestion des écrans, synchronisation, pseudo
+// ═══════════════════════════════════════════════════════════════════════════════
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { StatusBar, StyleSheet, BackHandler, Alert } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -8,12 +15,11 @@ import { PseudoScreen }  from './src/screens/PseudoScreen';
 import { MenuPrincipal } from './src/screens/MenuPrincipal';
 import { MondeSolo }     from './src/screens/MondeSolo';
 import { MondeDuel }     from './src/screens/MondeDuel';
-import { Classement }    from './src/screens/Classement';
-import { Profil }        from './src/screens/Profil';
 import { SyncBadge }     from './src/services/SyncBadge';
 import { verifierConnexion, getNombreEnAttente, syncroniserScoresEnAttente, type StatutConnexion } from './src/services/syncService';
+import './src/i18n'; 
 
-type Ecran = 'menu' | 'solo' | 'duel' | 'classement' | 'profil';
+type Ecran = 'menu' | 'solo' | 'duel';
 
 export default function App() {
   const [splashFini,     setSplashFini]     = useState(false);
@@ -52,14 +58,10 @@ export default function App() {
 
   const handleMenuClick = (menuId: string) => {
     const map: Record<string, Ecran> = {
-      solo: 'solo', duel: 'duel', classement: 'classement', profil: 'profil',
+      solo: 'solo',
+      duel: 'duel',
     };
     setEcranActuel(map[menuId] ?? 'menu');
-  };
-
-  // ✅ FONCTION POUR ALLER AU CLASSEMENT
-  const handleGoToClassement = () => {
-    setEcranActuel('classement');
   };
 
   // ── Gestion du bouton retour Android ────────────────────────────────────
@@ -98,7 +100,7 @@ export default function App() {
       );
     }
 
-    // 3. JEU — avec indicateur de synchronisation en overlay
+    // 3. JEU
     const ecran = (() => {
       switch (ecranActuel) {
         case 'menu':
@@ -115,7 +117,6 @@ export default function App() {
               onRetour={() => setEcranActuel('menu')}
               pseudo={pseudo}
               onPseudoChange={handlePseudoChange}
-              onGoToClassement={handleGoToClassement}  // ← AJOUTÉ
             />
           );
         case 'duel':
@@ -124,22 +125,6 @@ export default function App() {
               onRetour={() => setEcranActuel('menu')}
               pseudo={pseudo}
               onPseudoChange={handlePseudoChange}
-            />
-          );
-        case 'classement':
-          return (
-            <Classement
-              onRetour={() => setEcranActuel('menu')}
-              
-             
-            />
-          );
-        case 'profil':
-          return (
-            <Profil
-              pseudo={pseudo}
-              onRetour={() => setEcranActuel('menu')}
-              
             />
           );
         default:

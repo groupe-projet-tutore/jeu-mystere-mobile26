@@ -1,4 +1,11 @@
 // src/screens/MenuPrincipal.tsx
+// ═══════════════════════════════════════════════════════════════════════════════
+//  MENU PRINCIPAL — Version simplifiée
+//  - Suppression des cartes Classement et Profil
+//  - Conservation uniquement des modes SOLO et DUEL
+//  - Design et styles identiques
+// ═══════════════════════════════════════════════════════════════════════════════
+
 import React, { useRef, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
@@ -16,11 +23,28 @@ type Props = {
   pseudo:          string;
 };
 
+// ✅ MENU ITEMS — Uniquement SOLO et DUEL
 const MENU_ITEMS = [
-  { id:'solo',       icon:'🎯', title:'SOLO',      sub:'Mode entraînement', desc:"Affronte l'ordinateur sur 4 niveaux", grad:['#0d2554','#1a4fd6'] as [string,string], accent:'#4d8af0', tag:'4 NIVEAUX'   },
-  { id:'duel',       icon:'⚔️', title:'DUEL',      sub:'1 contre 1',        desc:'Défie tes amis en temps réel',        grad:['#240d52','#6d28d9'] as [string,string], accent:'#9d5ff5', tag:'MULTIJOUEUR' },
-  { id:'classement', icon:'🏆', title:'Classement',    sub:'Classement global', desc:'Compare ta position dans le top',     grad:['#3d2000','#b07d0e'] as [string,string], accent:'#f5a623', tag:'GLOBAL'       },
-  { id:'profil',     icon:'👤', title:'PROFIL',    sub:'Tes statistiques',  desc:'Progression, records et badges',      grad:['#03200e','#0f7a42'] as [string,string], accent:'#2ecc7a', tag:'STATS'        },
+  { 
+    id: 'solo', 
+    icon: '🎯', 
+    title: 'SOLO', 
+    sub: 'Mode entraînement', 
+    desc: "Affronte l'ordinateur sur 4 niveaux", 
+    grad: ['#0d2554', '#1a4fd6'] as [string, string], 
+    accent: '#4d8af0', 
+    tag: '4 NIVEAUX'   
+  },
+  { 
+    id: 'duel', 
+    icon: '⚔️', 
+    title: 'DUEL', 
+    sub: '1 contre 1', 
+    desc: 'Défie tes amis en temps réel', 
+    grad: ['#240d52', '#6d28d9'] as [string, string], 
+    accent: '#9d5ff5', 
+    tag: 'MULTIJOUEUR' 
+  },
 ];
 
 export const MenuPrincipal: React.FC<Props> = ({ onMenuClick, onPseudoChange, pseudo }) => {
@@ -39,7 +63,7 @@ export const MenuPrincipal: React.FC<Props> = ({ onMenuClick, onPseudoChange, ps
     ])).start();
   }, []);
 
-  // ✅ Quitter l'application complètement
+  // Quitter l'application complètement
   const handleQuitter = () => {
     if (Platform.OS === 'android') {
       Alert.alert(
@@ -52,7 +76,6 @@ export const MenuPrincipal: React.FC<Props> = ({ onMenuClick, onPseudoChange, ps
         { cancelable: true }
       );
     } else {
-      // iOS : on ne peut pas forcer la fermeture — on affiche juste un message
       Alert.alert(
         'Quitter le jeu',
         'Sur iPhone, ferme l\'application en glissant vers le haut depuis le bas de l\'écran.',
@@ -80,7 +103,6 @@ export const MenuPrincipal: React.FC<Props> = ({ onMenuClick, onPseudoChange, ps
             <Text style={S.headerEye}>BIENVENUE</Text>
             <Text style={S.headerName} numberOfLines={1}>{pseudo}</Text>
           </View>
-          {/* ✅ PseudoBadge cliquable — modale de modification */}
           <PseudoBadge
             pseudo={pseudo}
             onPseudoChange={onPseudoChange}
@@ -94,14 +116,13 @@ export const MenuPrincipal: React.FC<Props> = ({ onMenuClick, onPseudoChange, ps
           <View style={S.subLine} />
         </View>
 
-        {/* ── Grille 2×2 ── */}
+        {/* ── Grille 2×1 (deux cartes centrées) ── */}
         <View style={S.grid}>
           {MENU_ITEMS.map((item, i) => (
             <MenuCard key={item.id} item={item} index={i} onPress={() => onMenuClick(item.id)} />
           ))}
         </View>
 
-       
       </Animated.View>
     </View>
   );
@@ -124,7 +145,8 @@ const MenuCard: React.FC<{ item: CardItem; index: number; onPress: () => void }>
   const onPressIn  = () => Animated.spring(pressScale, { toValue: 0.96, friction: 8, useNativeDriver: true }).start();
   const onPressOut = () => Animated.spring(pressScale, { toValue: 1,    friction: 6, useNativeDriver: true }).start();
 
-  const cardH = Math.max(158, Math.min(195, (H - 420) / 2));
+  // Hauteur adaptative pour les deux cartes (centrées)
+  const cardH = Math.max(158, Math.min(195, (H - 320) / 2));
 
   return (
     <Animated.View style={[S.cardWrapper, { opacity: entryOpacity, transform: [{ scale: entryScale }] }]}>
@@ -163,7 +185,8 @@ const S = StyleSheet.create({
   content: {
     flex: 1,
     paddingTop: Platform.OS === 'ios' ? 56 : 36,
-    paddingHorizontal: 18, paddingBottom: 16,
+    paddingHorizontal: 18,
+    paddingBottom: 16,
   },
 
   // Header
@@ -179,31 +202,86 @@ const S = StyleSheet.create({
   subTitle:  { fontSize: 17, fontWeight: '700', color: C.textBody },
   subLine:   { flex: 1, height: 1, backgroundColor: C.border },
 
-  // Grille
+  // Grille (centrée pour 2 cartes)
   grid: {
-    flex: 1, flexDirection: 'row', flexWrap: 'wrap',
-    justifyContent: 'space-between', alignContent: 'center',
-    gap: 12, marginBottom: 16,
+    flex: 1,
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+    marginBottom: 16,
   },
-  cardWrapper: { width: (W - 48) / 2 },
+  cardWrapper: { 
+    width: (W - 48), 
+    maxWidth: 400,
+  },
   card: {
-    borderRadius: 22, padding: 16, overflow: 'hidden',
+    borderRadius: 22,
+    padding: 20,
+    overflow: 'hidden',
     justifyContent: 'space-between',
-    shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 16, elevation: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 10,
   },
-  cardDecoBg: { position: 'absolute', width: 100, height: 100, borderRadius: 50, top: -24, right: -24 },
-  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  cardTagPill: { backgroundColor: '#00000025', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, borderWidth: 1 },
-  cardTagText: { fontSize: 9, fontWeight: '800', letterSpacing: 1.5 },
-  cardIcon:    { fontSize: 28 },
-  cardTitle:   { fontSize: 18, fontWeight: '900', color: '#ffffff', letterSpacing: 0.5 },
-  cardSub:     { fontSize: 12, color: '#ffffffcc', fontWeight: '600', marginTop: 2 },
-  cardDivider: { height: 1, marginVertical: 8 },
-  cardBottom:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  cardDesc:    { fontSize: 10, color: '#ffffffcc', flex: 1, fontWeight: '500', marginRight: 6 },
-  cardArrowCircle: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  cardArrow:   { fontSize: 16, fontWeight: '700' },
-  
+  cardDecoBg: { 
+    position: 'absolute', 
+    width: 120, 
+    height: 120, 
+    borderRadius: 60, 
+    top: -30, 
+    right: -30 
+  },
+  cardTop: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  cardTagPill: { 
+    backgroundColor: '#00000025', 
+    paddingHorizontal: 10, 
+    paddingVertical: 4, 
+    borderRadius: 8, 
+    borderWidth: 1 
+  },
+  cardTagText: { 
+    fontSize: 10, 
+    fontWeight: '800', 
+    letterSpacing: 1.5 
+  },
+  cardIcon:    { fontSize: 32 },
+  cardTitle:   { 
+    fontSize: 20, 
+    fontWeight: '900', 
+    color: '#ffffff', 
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  cardSub:     { 
+    fontSize: 13, 
+    color: '#ffffffcc', 
+    fontWeight: '600', 
+    marginBottom: 8,
+  },
+  cardDivider: { 
+    height: 1, 
+    marginVertical: 10,
+    opacity: 0.5,
+  },
+  cardBottom:  { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between' 
+  },
+  cardDesc:    { 
+    fontSize: 11, 
+    color: '#ffffffcc', 
+    flex: 1, 
+    fontWeight: '500', 
+    marginRight: 6 
+  },
 });
 
 export default MenuPrincipal;

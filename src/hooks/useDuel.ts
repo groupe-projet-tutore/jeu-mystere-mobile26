@@ -1,9 +1,11 @@
 // src/hooks/useDuel.ts
-// Version 5.4 - CORRECTIONS COMPLÈTES
-// - Reconnexion WebSocket automatique
-// - Envoi pret unique et fiable
-// - Abandon avec confirmation serveur
-// - Reset propre des états
+// ═══════════════════════════════════════════════════════════════════════════════
+//  HOOK DUEL — Version avec nouveau système post-manche
+//  - Intervalle FIXE (ne se réduit pas)
+//  - Créateur : peut choisir niveau ou recommencer
+//  - Invité : confirme après choix du créateur
+//  - Communication WebSocket pour les nouvelles actions
+// ═══════════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Vibration, Alert } from 'react-native';
@@ -75,6 +77,10 @@ export const useDuel = (pseudo: string) => {
   const [monTour, setMonTour] = useState<boolean>(false);
   const [confirmationEnvoyee, setConfirmationEnvoyee] = useState<boolean>(false);
   const [adversaireAConfirme, setAdversaireAConfirme] = useState<boolean>(false);
+  
+  // Nouveaux états pour le système post-manche
+  const [actionCreateur, setActionCreateur] = useState<string | null>(null);
+  const [prochainNiveauChoisi, setProchainNiveauChoisi] = useState<number>(1);
 
   const socketRef = useRef<Socket | null>(null);
   const timerAffichageRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -83,6 +89,7 @@ export const useDuel = (pseudo: string) => {
   const pretEnvoyeRef = useRef<boolean>(false);
   const tentativeReconnexionRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const compteurTentativesRef = useRef<number>(0);
+  const pseudoRef = useRef(pseudo);
 
   const arreterTimerAffichage = useCallback(() => {
     if (timerAffichageRef.current) {
@@ -168,7 +175,7 @@ export const useDuel = (pseudo: string) => {
             connecterSocket().then(socket => {
               configurerListeners(socket);
               if (codeSalle) {
-                socket.emit('rejoindre_salle', { code: codeSalle, pseudo });
+                socket.emit('rejoindre_salle', { code: codeSalle, pseudo: pseudoRef.current });
               }
             }).catch(() => {});
           }, 1000 * Math.pow(2, compteurTentativesRef.current));
@@ -177,7 +184,7 @@ export const useDuel = (pseudo: string) => {
         }
       });
     });
-  }, [API_URL, pseudo, codeSalle, etat, arreterTimerAffichage]);
+  }, [API_URL, codeSalle, etat, arreterTimerAffichage]);
 
   const configurerListeners = useCallback((socket: Socket) => {
     socket.on('salle_creee', (data: { code: string; niveau: number; estHote: boolean }) => {
@@ -186,15 +193,18 @@ export const useDuel = (pseudo: string) => {
       setNiveau(data.niveau);
       setEtat('attente');
       pretEnvoyeRef.current = false;
+      setActionCreateur(null);
     });
 
-    socket.on('vous_avez_rejoint', (data: { adversaire: string; estHote: boolean; niveau: number }) => {
-      setAdversairePseudo(data.adversaire);
-      setEstHote(false);
-      setNiveau(data.niveau);
-      setEtat('attente');
-      pretEnvoyeRef.current = false;
-    });
+ socket.on('vous_avez_rejoint', (data: { adversaire: string; estHote: boolean; niveau: number }) => {
+  setAdversairePseudo(data.adversaire);
+  console.log('📡 vous_avez_rejoint - estHote reçu:', data.estHote);  
+  setEstHote(data.estHote);  // ← CORRECTION
+  setNiveau(data.niveau);
+  setEtat('attente');
+  pretEnvoyeRef.current = false;
+  setActionCreateur(null);
+});
 
     socket.on('adversaire_rejoint', (data: { pseudo: string }) => {
       setAdversairePseudo(data.pseudo);
@@ -224,8 +234,9 @@ export const useDuel = (pseudo: string) => {
       setCompteARebours(0);
       debutPartieRef.current = Date.now();
       setEtat('en_cours');
+      setActionCreateur(null);
       
-      const estMonTour = data.premierTour === pseudo;
+      const estMonTour = data.premierTour === pseudoRef.current;
       setMonTour(estMonTour);
       
       if (estMonTour) {
@@ -239,29 +250,73 @@ export const useDuel = (pseudo: string) => {
       setAdversaireAConfirme(false);
       setAbandonData(null);
     });
+socket.on('victoire_manche', (data: {
+  vainqueur: string;
+  niveau: number;
+  pointsGagnes: number;
+  pointsJoueur1: number;
+  pointsJoueur2: number;
+  prochainNiveau: number;
+  pointsProchainNiveau: number;
+}) => {
+  nettoyerTimers();
+  
+  // ✅ CORRECTION : Adapter selon le rôle du joueur
+  if (estHote) {
+    // Créateur : ses points sont pointsJoueur1, l'adversaire pointsJoueur2
+    setPointsJoueur(data.pointsJoueur1);
+    setPointsAdversaire(data.pointsJoueur2);
+  } else {
+    // Invité : ses points sont pointsJoueur2, l'adversaire pointsJoueur1
+    setPointsJoueur(data.pointsJoueur2);
+    setPointsAdversaire(data.pointsJoueur1);
+  }
+  
+  setPointsNiveauGagnes(0);
+  setProchainNiveau(data.prochainNiveau);
+  setNiveau(data.niveau);
+  setConfirmationEnvoyee(false);
+  setAdversaireAConfirme(false);
+  
+  if (data.vainqueur === pseudoRef.current) {
+    setEtat('victoire_manche');
+  } else {
+    setEtat('defaite_manche');
+  }
+});
+    // Nouvel événement : le créateur a choisi une action
+    socket.on('createur_a_choisi', (data: { action: string; niveau: number }) => {
+      setActionCreateur(data.action);
+      setProchainNiveauChoisi(data.niveau);
+    });
 
-    socket.on('victoire_manche', (data: {
-      vainqueur: string;
+    // Nouvel événement : les deux ont confirmé, on lance le nouveau duel
+    socket.on('nouveau_duel_prepare', (data: {
       niveau: number;
-      pointsGagnes: number;
-      pointsJoueur1: number;
-      pointsJoueur2: number;
-      prochainNiveau: number;
-      pointsProchainNiveau: number;
+      nombreMystere: number;
+      essaisMax: number;
+      premierTour: string;
+      temps: number;
     }) => {
-      nettoyerTimers();
-      setPointsJoueur(data.pointsJoueur1);
-      setPointsAdversaire(data.pointsJoueur2);
-      setPointsNiveauGagnes(data.pointsGagnes);
-      setProchainNiveau(data.prochainNiveau);
       setNiveau(data.niveau);
-      setConfirmationEnvoyee(false);
-      setAdversaireAConfirme(false);
+      setNombreMystere(data.nombreMystere);
+      setEssaisRestants(data.essaisMax);
+      setPropositions([]);
+      setEssaisAdversaire(0);
+      setPointsJoueur(0);
+      setPointsAdversaire(0);
+      setCompteARebours(3);
+      setEtat('compte_a_rebours');
+      setActionCreateur(null);
       
-      if (data.vainqueur === pseudo) {
-        setEtat('victoire_manche');
+      const estMonTour = data.premierTour === pseudoRef.current;
+      setMonTour(estMonTour);
+      
+      if (estMonTour) {
+        demarrerTimerAffichage(data.temps);
       } else {
-        setEtat('defaite_manche');
+        arreterTimerAffichage();
+        setTempsRestant(0);
       }
     });
 
@@ -295,42 +350,6 @@ export const useDuel = (pseudo: string) => {
       setEtat('defaite_par_abandon');
     });
 
-    socket.on('nouvelle_manche', (data: {
-      niveau: number;
-      nombreMystere: number;
-      essaisMax: number;
-      premierTour: string;
-      pointsNiveau: number;
-      pointsJoueur1: number;
-      pointsJoueur2: number;
-      temps: number;
-    }) => {
-      setNiveau(data.niveau);
-      setProchainNiveau(data.niveau + 1);
-      setNombreMystere(data.nombreMystere);
-      setEssaisRestants(data.essaisMax);
-      setPointsNiveauGagnes(data.pointsNiveau);
-      setPointsJoueur(data.pointsJoueur1);
-      setPointsAdversaire(data.pointsJoueur2);
-      setPropositions([]);
-      setEssaisAdversaire(0);
-      setEtat('en_cours');
-      
-      const estMonTour = data.premierTour === pseudo;
-      setMonTour(estMonTour);
-      
-      if (estMonTour) {
-        demarrerTimerAffichage(data.temps);
-      } else {
-        arreterTimerAffichage();
-        setTempsRestant(0);
-      }
-      
-      setConfirmationEnvoyee(false);
-      setAdversaireAConfirme(false);
-      setAbandonData(null);
-    });
-
     socket.on('proposition_adversaire', (data: {
       pseudo: string;
       nbPropositions: number;
@@ -339,7 +358,7 @@ export const useDuel = (pseudo: string) => {
     }) => {
       setEssaisAdversaire(data.nbPropositions);
       
-      const estMonTour = data.prochainTour === pseudo;
+      const estMonTour = data.prochainTour === pseudoRef.current;
       setMonTour(estMonTour);
       
       if (estMonTour) {
@@ -359,13 +378,13 @@ export const useDuel = (pseudo: string) => {
     }) => {
       Vibration.vibrate([200, 100, 200]);
       
-      if (data.joueur === pseudo) {
+      if (data.joueur === pseudoRef.current) {
         setEssaisRestants(data.essaisRestants);
       } else {
         setEssaisAdversaire(data.essaisRestants);
       }
       
-      const estMonTour = data.prochainTour === pseudo;
+      const estMonTour = data.prochainTour === pseudoRef.current;
       setMonTour(estMonTour);
       
       if (estMonTour) {
@@ -385,7 +404,7 @@ export const useDuel = (pseudo: string) => {
     }) => {
       nettoyerTimers();
       const duree = Math.floor((Date.now() - debutPartieRef.current) / 1000);
-      const aGagne = data.vainqueur === pseudo;
+      const aGagne = data.vainqueur === pseudoRef.current;
       const egalite = data.vainqueur === null;
 
       setResultat({
@@ -428,11 +447,12 @@ export const useDuel = (pseudo: string) => {
     socket.on('adversaire_a_confirme', () => {
       setAdversaireAConfirme(true);
     });
-  }, [pseudo, demarrerTimerAffichage, arreterTimerAffichage, nettoyerTimers, propositions.length, essaisAdversaire]);
+  }, [demarrerTimerAffichage, arreterTimerAffichage, nettoyerTimers, propositions.length, essaisAdversaire]);
 
   const creerSalle = useCallback(async (niveauChoisi: number) => {
     setErreur('');
     setEtat('creation');
+    setActionCreateur(null);
 
     try {
       const socket = await connecterSocket();
@@ -442,37 +462,38 @@ export const useDuel = (pseudo: string) => {
         await new Promise<void>((resolve) => socket.once('connect', resolve));
       }
       
-      socket.emit('creer_salle', { pseudo, niveau: niveauChoisi });
+      socket.emit('creer_salle', { pseudo: pseudoRef.current, niveau: niveauChoisi });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Impossible de créer la salle';
       setErreur(message);
       setEtat('idle');
       Alert.alert('Erreur', message);
     }
-  }, [pseudo, connecterSocket, configurerListeners]);
+  }, [connecterSocket, configurerListeners]);
 
   const rejoindreSalle = useCallback(async (code: string) => {
     setErreur('');
     setEtat('rejoindre');
+    setActionCreateur(null);
 
     try {
       const socket = await connecterSocket();
       configurerListeners(socket);
-      socket.emit('rejoindre_salle', { code: code.toUpperCase(), pseudo });
+      socket.emit('rejoindre_salle', { code: code.toUpperCase(), pseudo: pseudoRef.current });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Code invalide ou salle inexistante';
       setErreur(message);
       setEtat('idle');
       Alert.alert('Erreur', message);
     }
-  }, [pseudo, connecterSocket, configurerListeners]);
+  }, [connecterSocket, configurerListeners]);
 
   const envoyerPret = useCallback(() => {
     if (socketRef.current?.connected && etat === 'attente' && !pretEnvoyeRef.current && adversairePseudo) {
-      socketRef.current.emit('pret', { pseudo });
+      socketRef.current.emit('pret', { pseudo: pseudoRef.current });
       pretEnvoyeRef.current = true;
     }
-  }, [pseudo, etat, adversairePseudo]);
+  }, [etat, adversairePseudo]);
 
   const proposerNombre = useCallback((valeur: number) => {
     if (!monTour) {
@@ -519,22 +540,47 @@ export const useDuel = (pseudo: string) => {
     setTempsRestant(0);
 
     if (socketRef.current?.connected) {
-      socketRef.current.emit('proposition', { pseudo, valeur });
+      socketRef.current.emit('proposition', { pseudo: pseudoRef.current, valeur });
     }
 
     if (valeur === nombreMystere) {
       nettoyerTimers();
     }
-  }, [monTour, etat, niveau, nombreMystere, propositions, tempsRestant, pseudo, essaisRestants, nettoyerTimers, arreterTimerAffichage]);
+  }, [monTour, etat, niveau, nombreMystere, propositions, tempsRestant, essaisRestants, nettoyerTimers, arreterTimerAffichage]);
+
+  // Nouvelle fonction : le créateur choisit un niveau
+  const choisirNiveau = useCallback((niveauChoisi: number) => {
+    if (socketRef.current?.connected && estHote && (etat === 'victoire_manche' || etat === 'defaite_manche')) {
+      socketRef.current.emit('createur_choisit_niveau', { pseudo: pseudoRef.current, niveau: niveauChoisi });
+      setActionCreateur(`Niveau ${niveauChoisi}`);
+      setProchainNiveauChoisi(niveauChoisi);
+    }
+  }, [estHote, etat]);
+
+  // Nouvelle fonction : le créateur recommence le même niveau
+  const recommencerNiveau = useCallback(() => {
+    if (socketRef.current?.connected && estHote && (etat === 'victoire_manche' || etat === 'defaite_manche')) {
+      socketRef.current.emit('createur_choisit_niveau', { pseudo: pseudoRef.current, recommencer: true });
+      setActionCreateur(`Niveau ${niveau} (replay)`);
+      setProchainNiveauChoisi(niveau);
+    }
+  }, [estHote, etat, niveau]);
+
+  // Nouvelle fonction : l'invité confirme pour le nouveau duel
+  const confirmerNouveauDuel = useCallback(() => {
+    if (socketRef.current?.connected && !estHote && actionCreateur && (etat === 'victoire_manche' || etat === 'defaite_manche')) {
+      socketRef.current.emit('invite_confirme', { pseudo: pseudoRef.current });
+    }
+  }, [estHote, actionCreateur, etat]);
 
   const continuerMancheSuivante = useCallback(() => {
     if (socketRef.current?.connected && (etat === 'victoire_manche' || etat === 'defaite_manche')) {
       if (!confirmationEnvoyee) {
-        socketRef.current.emit('continuer_manche', { pseudo });
+        socketRef.current.emit('continuer_manche', { pseudo: pseudoRef.current });
         setConfirmationEnvoyee(true);
       }
     }
-  }, [pseudo, etat, confirmationEnvoyee]);
+  }, [etat, confirmationEnvoyee]);
 
   const quitterProprement = useCallback(() => {
     Alert.alert(
@@ -549,7 +595,7 @@ export const useDuel = (pseudo: string) => {
             arreterTimerAffichage();
             
             if (socketRef.current?.connected) {
-              socketRef.current.emit('quitter_salle', { pseudo });
+              socketRef.current.emit('quitter_salle', { pseudo: pseudoRef.current });
             }
             
             nettoyerTimers();
@@ -569,17 +615,18 @@ export const useDuel = (pseudo: string) => {
             setAbandonData(null);
             setPointsJoueur(0);
             setPointsAdversaire(0);
+            setActionCreateur(null);
           }
         }
       ]
     );
-  }, [pseudo, nettoyerTimers, arreterTimerAffichage]);
+  }, [nettoyerTimers, arreterTimerAffichage]);
 
   const annulerSalle = useCallback(() => {
     arreterTimerAffichage();
     
     if (socketRef.current?.connected) {
-      socketRef.current.emit('annuler_salle', { pseudo });
+      socketRef.current.emit('annuler_salle', { pseudo: pseudoRef.current });
     }
     
     nettoyerTimers();
@@ -600,7 +647,8 @@ export const useDuel = (pseudo: string) => {
     setEstHote(false);
     setPointsJoueur(0);
     setPointsAdversaire(0);
-  }, [pseudo, nettoyerTimers, arreterTimerAffichage]);
+    setActionCreateur(null);
+  }, [nettoyerTimers, arreterTimerAffichage]);
 
   const abandonner = useCallback(() => {
     Alert.alert(
@@ -615,7 +663,7 @@ export const useDuel = (pseudo: string) => {
             arreterTimerAffichage();
             
             if (socketRef.current?.connected) {
-              socketRef.current.emit('abandonner', { pseudo });
+              socketRef.current.emit('abandonner', { pseudo: pseudoRef.current });
               setEtat('defaite_par_abandon');
             } else {
               Alert.alert("Erreur", "Impossible de contacter le serveur");
@@ -635,11 +683,12 @@ export const useDuel = (pseudo: string) => {
             setConfirmationEnvoyee(false);
             setAdversaireAConfirme(false);
             pretEnvoyeRef.current = false;
+            setActionCreateur(null);
           }
         }
       ]
     );
-  }, [pseudo, nettoyerTimers, arreterTimerAffichage]);
+  }, [nettoyerTimers, arreterTimerAffichage]);
 
   const reinitialiser = useCallback(() => {
     arreterTimerAffichage();
@@ -669,6 +718,7 @@ export const useDuel = (pseudo: string) => {
     setEstHote(false);
     pretEnvoyeRef.current = false;
     compteurTentativesRef.current = 0;
+    setActionCreateur(null);
   }, [arreterTimerAffichage]);
 
   const niveauConfig = NIVEAUX_CONFIG[niveau as keyof typeof NIVEAUX_CONFIG] ?? NIVEAUX_CONFIG[1];
@@ -712,15 +762,21 @@ export const useDuel = (pseudo: string) => {
     confirmationEnvoyee,
     adversaireAConfirme,
     abandonData,
+    actionCreateur,
+    prochainNiveauChoisi,
     creerSalle,
     rejoindreSalle,
     envoyerPret,
     proposerNombre,
     continuerMancheSuivante,
+    choisirNiveau,
+    recommencerNiveau,
+    confirmerNouveauDuel,
     abandonner,
     quitterProprement,
     annulerSalle,
     reinitialiser,
+    socketRef,
   };
 };
 

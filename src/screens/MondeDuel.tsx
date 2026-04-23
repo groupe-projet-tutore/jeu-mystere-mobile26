@@ -1,10 +1,10 @@
 // src/screens/MondeDuel.tsx
 // ═══════════════════════════════════════════════════════════════════════════════
-//  MONDE DUEL — Version Premium avec boutons parfaitement alignés
-//  - Bouton Quitter : rouge vif, grande taille, bien visible
-//  - Bouton principal : violet avec dégradé
-//  - Espacement parfait entre les deux boutons
-//  - Tous les écrans modernisés
+//  MONDE DUEL — Version Premium avec intervalle FIXE et nouveau système post-manche
+//  - Intervalle de recherche FIXE (ne se réduit pas)
+//  - Créateur : 3 boutons (Choisir niveau, Recommencer, Quitter)
+//  - Invité : 2 boutons (Confirmer avec animation, Quitter)
+//  - Nouveau duel sans quitter la salle
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import React, { useState, useRef, useEffect } from 'react';
@@ -12,48 +12,95 @@ import {
   View, Text, TouchableOpacity, StyleSheet, TextInput,
   ScrollView, Animated, Easing, Platform, Share, Clipboard,
   Vibration, Modal,
+  Dimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { C, LEVEL_THEMES as LT } from '../styles/theme';
 import { PseudoBadge } from '../components/PseudoBadge';
 import { useDuel, type EtatDuel, type PropositionDuel } from '../hooks/useDuel';
-import { Classement } from './Classement';
+import { ChatDuel } from './ChatDuel';
+import { ClassementDuel } from './ClassementDuel';
 
 type Props = {
   onRetour:        () => void;
   pseudo?:         string;
   onPseudoChange?: (p: string) => void;
 };
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+const NIVEAUX_DUEL = [
+  { id: 1, min: 1, max: 100, essaisMax: 10, label: 'Débutant', icon: '🌱', color: '#4d8af0' },
+  { id: 2, min: 1, max: 200, essaisMax: 8, label: 'Intermédiaire', icon: '🌿', color: '#9d5ff5' },
+  { id: 3, min: 1, max: 300, essaisMax: 5, label: 'Expert', icon: '🔥', color: '#f472b6' },
+  { id: 4, min: 1, max: 500, essaisMax: 3, label: 'Maître', icon: '👑', color: '#f87171' },
+];
 
 export const MondeDuel: React.FC<Props> = ({
   onRetour, pseudo = 'Joueur', onPseudoChange,
 }) => {
   const duel = useDuel(pseudo);
-  const [showClassement, setShowClassement] = useState(false);
+  const [showClassementDuel, setShowClassementDuel] = useState(false);
   const [showVictoireAbandonScreen, setShowVictoireAbandonScreen] = useState(false);
+  const [showNiveauModal, setShowNiveauModal] = useState(false);
+  const [niveauTemp, setNiveauTemp] = useState(1);
   const [notificationAbandon, setNotificationAbandon] = useState<{ 
     visible: boolean; 
     adversaire: string; 
-    pointsGagnes: number 
-  }>({ visible: false, adversaire: '', pointsGagnes: 0 });
+  }>({ visible: false, adversaire: '' });
   const [notificationAdversaireQuitte, setNotificationAdversaireQuitte] = useState<{
     visible: boolean;
     message: string;
   }>({ visible: false, message: '' });
+  
+  // Animation pour le bouton Confirmer de l'invité
+  const [boutonConfirmeAnime, setBoutonConfirmeAnime] = useState(false);
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     if (duel.etat === 'adversaire_a_quitte') {
       setNotificationAdversaireQuitte({
         visible: true,
-        message: "Votre adversaire a quitté la partie. Vous gardez vos points gagnés."
+        message: "Votre adversaire a quitté la partie."
       });
     }
   }, [duel.etat]);
+
+  useEffect(() => {
+    if (boutonConfirmeAnime) {
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.15, duration: 200, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1.08, duration: 150, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 150, useNativeDriver: true }),
+      ]).start(() => setBoutonConfirmeAnime(false));
+    }
+  }, [boutonConfirmeAnime]);
 
   const handleAdversaireQuitteOk = () => {
     setNotificationAdversaireQuitte({ visible: false, message: '' });
     duel.reinitialiser();
     onRetour();
+  };
+
+  const handleChoisirNiveau = (niveau: number) => {
+    duel.choisirNiveau(niveau);
+    setShowNiveauModal(false);
+    if (!duel.estHote) {
+      setBoutonConfirmeAnime(true);
+    }
+  };
+
+  const handleRecommencer = () => {
+    duel.recommencerNiveau();
+    if (!duel.estHote) {
+      setBoutonConfirmeAnime(true);
+    }
+  };
+
+  const handleConfirmer = () => {
+    if (duel.actionCreateur) {
+      duel.confirmerNouveauDuel();
+    }
   };
 
   const renderContenu = () => {
@@ -70,9 +117,39 @@ export const MondeDuel: React.FC<Props> = ({
       case 'en_cours':
         return <EcranJeu duel={duel} pseudo={pseudo} />;
       case 'victoire_manche':
-        return <EcranVictoireManche duel={duel} pseudo={pseudo} onQuitter={duel.quitterProprement} onVoirResultat={duel.reinitialiser} />;
+        return (
+          <EcranFinManche
+            victoire={true}
+            duel={duel}
+            pseudo={pseudo}
+            onChoisirNiveau={() => setShowNiveauModal(true)}
+            onRecommencer={handleRecommencer}
+            onQuitter={duel.quitterProprement}
+            onConfirmer={handleConfirmer}
+            onRetourMenu={duel.reinitialiser}
+            estCreateur={duel.estHote}
+            actionCreateur={duel.actionCreateur}
+            boutonConfirmeAnime={boutonConfirmeAnime}
+            pulseAnim={pulseAnim}
+          />
+        );
       case 'defaite_manche':
-        return <EcranDefaiteManche duel={duel} pseudo={pseudo} onQuitter={duel.quitterProprement} onVoirResultat={duel.reinitialiser} />;
+        return (
+          <EcranFinManche
+            victoire={false}
+            duel={duel}
+            pseudo={pseudo}
+            onChoisirNiveau={() => setShowNiveauModal(true)}
+            onRecommencer={handleRecommencer}
+            onQuitter={duel.quitterProprement}
+            onConfirmer={handleConfirmer}
+            onRetourMenu={duel.reinitialiser}
+            estCreateur={duel.estHote}
+            actionCreateur={duel.actionCreateur}
+            boutonConfirmeAnime={boutonConfirmeAnime}
+            pulseAnim={pulseAnim}
+          />
+        );
       case 'victoire_par_abandon':
         if (showVictoireAbandonScreen) {
           return <EcranVictoireParAbandon duel={duel} pseudo={pseudo} onRetour={() => {
@@ -82,7 +159,7 @@ export const MondeDuel: React.FC<Props> = ({
           }} />;
         }
         if (!notificationAbandon.visible && duel.abandonData && !showVictoireAbandonScreen) {
-          setNotificationAbandon({ visible: true, adversaire: duel.adversairePseudo || 'Adversaire', pointsGagnes: duel.abandonData.pointsGagnes });
+          setNotificationAbandon({ visible: true, adversaire: duel.adversairePseudo || 'Adversaire' });
           return null;
         }
         return null;
@@ -113,7 +190,7 @@ export const MondeDuel: React.FC<Props> = ({
   };
 
   const handleNotificationOk = () => {
-    setNotificationAbandon({ visible: false, adversaire: '', pointsGagnes: 0 });
+    setNotificationAbandon({ visible: false, adversaire: '' });
     setShowVictoireAbandonScreen(true);
   };
 
@@ -156,8 +233,8 @@ export const MondeDuel: React.FC<Props> = ({
                   {duel.etat === 'rejoindre'     && '🔄  CONNEXION'}
                   {duel.etat === 'compte_a_rebours' && '🎯  BIENTÔT'}
                   {duel.etat === 'en_cours'      && '🟢  EN JEU'}
-                  {duel.etat === 'victoire_manche' && '🎉  NIVEAU GAGNÉ'}
-                  {duel.etat === 'defaite_manche' && '⏸️  EN ATTENTE'}
+                  {duel.etat === 'victoire_manche' && '🎉  MANCHE TERMINÉE'}
+                  {duel.etat === 'defaite_manche' && '⏸️  MANCHE TERMINÉE'}
                   {duel.etat === 'victoire_par_abandon' && '🏆  VICTOIRE'}
                   {duel.etat === 'defaite_par_abandon' && '💀  DÉFAITE'}
                   {(duel.etat === 'victoire' || duel.etat === 'defaite' || duel.etat === 'egal') && '🏁  TERMINÉ'}
@@ -169,8 +246,10 @@ export const MondeDuel: React.FC<Props> = ({
           </View>
           
           <View style={S.headerRight}>
-            <TouchableOpacity onPress={() => setShowClassement(true)} style={S.classementBtn} activeOpacity={0.7}>
-              <Text style={S.classementBtnText}>🏆</Text>
+            <TouchableOpacity onPress={() => setShowClassementDuel(true)} style={S.classementBtn} activeOpacity={0.7}>
+              <LinearGradient colors={[C.blueDark, C.blue]} style={S.classementIconGrad}>
+                <Text style={S.classementIconText}>🏆</Text>
+              </LinearGradient>
             </TouchableOpacity>
             <PseudoBadge pseudo={pseudo} onPseudoChange={onPseudoChange} compact />
           </View>
@@ -185,13 +264,210 @@ export const MondeDuel: React.FC<Props> = ({
         </ScrollView>
       </View>
 
-      <Modal visible={showClassement} animationType="slide" presentationStyle="fullScreen">
-        <Classement onRetour={() => setShowClassement(false)} pseudo={pseudo} onPseudoChange={onPseudoChange} />
+      <Modal visible={showClassementDuel} animationType="slide" presentationStyle="fullScreen">
+        <ClassementDuel onRetour={() => setShowClassementDuel(false)} pseudo={pseudo} />
       </Modal>
 
-      <NotificationAbandon visible={notificationAbandon.visible} adversaire={notificationAbandon.adversaire} pointsGagnes={notificationAbandon.pointsGagnes} onOk={handleNotificationOk} />
+      <Modal visible={showNiveauModal} transparent animationType="fade">
+        <View style={S.modalOverlay}>
+          <LinearGradient colors={['#1a1a2e', '#16213e']} style={S.modalBox}>
+            <Text style={S.modalTitle}>Choisir un niveau</Text>
+            <View style={S.niveauxModalRow}>
+              {NIVEAUX_DUEL.map((n) => (
+                <TouchableOpacity
+                  key={n.id}
+                  style={[S.niveauModalChip, niveauTemp === n.id && { borderColor: n.color, backgroundColor: `${n.color}20` }]}
+                  onPress={() => setNiveauTemp(n.id)}
+                >
+                  <Text style={S.niveauModalIcon}>{n.icon}</Text>
+                  <Text style={[S.niveauModalLabel, { color: n.color }]}>{n.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={S.modalBtns}>
+              <TouchableOpacity style={S.btnAnnulerModal} onPress={() => setShowNiveauModal(false)}>
+                <Text style={S.btnAnnulerModalTxt}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[S.btnValiderModal, { backgroundColor: NIVEAUX_DUEL.find(n => n.id === niveauTemp)?.color }]} onPress={() => handleChoisirNiveau(niveauTemp)}>
+                <Text style={S.btnValiderModalTxt}>Valider</Text>
+              </TouchableOpacity>
+            </View>
+          </LinearGradient>
+        </View>
+      </Modal>
+
+      <NotificationAbandon visible={notificationAbandon.visible} adversaire={notificationAbandon.adversaire} onOk={handleNotificationOk} />
       <NotificationAdversaireQuitte visible={notificationAdversaireQuitte.visible} message={notificationAdversaireQuitte.message} onOk={handleAdversaireQuitteOk} />
+
+      <ChatDuel
+        socket={duel.socketRef?.current}
+        pseudo={pseudo}
+        adversairePseudo={duel.adversairePseudo}
+        estConnecte={duel.estConnecte}
+        etatPartie={duel.etat}
+      />
     </>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  ÉCRAN FIN DE MANCHE (VICTOIRE ou DÉFAITE)
+//  - Créateur : 3 boutons (Choisir niveau, Recommencer, Quitter)
+//  - Invité : 2 boutons (Confirmer, Quitter)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const EcranFinManche: React.FC<{
+  victoire: boolean;
+  duel: ReturnType<typeof useDuel>;
+  pseudo: string;
+  onChoisirNiveau: () => void;
+  onRecommencer: () => void;
+  onQuitter: () => void;
+  onConfirmer: () => void;
+  onRetourMenu: () => void;
+  estCreateur: boolean;
+  actionCreateur: string | null;
+  boutonConfirmeAnime: boolean;
+  pulseAnim: Animated.Value;
+}> = ({ 
+  victoire, duel, pseudo, onChoisirNiveau, onRecommencer, onQuitter, 
+  onConfirmer, onRetourMenu, estCreateur, actionCreateur, boutonConfirmeAnime, pulseAnim 
+}) => {
+  const scaleAnim = useRef(new Animated.Value(0.9)).current;
+  const glowAnim = useRef(new Animated.Value(0)).current;
+  const [showConfetti, setShowConfetti] = useState(false);
+
+  useEffect(() => {
+    Animated.spring(scaleAnim, { toValue: 1, friction: 8, tension: 40, useNativeDriver: true }).start();
+    Animated.loop(Animated.sequence([
+      Animated.timing(glowAnim, { toValue: 1, duration: 1200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      Animated.timing(glowAnim, { toValue: 0.3, duration: 1200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+    ])).start();
+    if (victoire) {
+      setTimeout(() => setShowConfetti(true), 100);
+    }
+  }, []);
+
+  const niveauInfo = NIVEAUX_DUEL.find(n => n.id === duel.niveau) || NIVEAUX_DUEL[0];
+
+  return (
+    <Animated.View style={[S.finContainer, { transform: [{ scale: scaleAnim }] }]}>
+      <LinearGradient 
+        colors={victoire ? ['#0a2e1a', '#0b4d20', '#0d5e28'] : ['#2a0a0a', '#4a1010', '#6a1515']} 
+        style={S.finCard} 
+        start={{ x: 0, y: 0 }} 
+        end={{ x: 1, y: 1 }}
+      >
+        <Animated.View style={[S.finGlow, { opacity: glowAnim, backgroundColor: victoire ? C.green : C.red }]} />
+        
+        {victoire && showConfetti && (
+          <View style={S.confettiContainer}>
+            <Text style={[S.confetti, { top: 20, left: 20 }]}>✨</Text>
+            <Text style={[S.confetti, { top: 50, right: 30 }]}>🎉</Text>
+            <Text style={[S.confetti, { bottom: 80, left: 40 }]}>⭐</Text>
+            <Text style={[S.confetti, { bottom: 40, right: 50 }]}>🌟</Text>
+          </View>
+        )}
+
+        <View style={S.finHeader}>
+          <View style={S.finIconWrapper}>
+            <LinearGradient colors={victoire ? ['#f5a623', '#ffd166'] : ['#f05252', '#a01515']} style={S.finIconCircle}>
+              <Text style={S.finIcon}>{victoire ? '🏆' : '💀'}</Text>
+            </LinearGradient>
+          </View>
+          <Text style={[S.finTitle, victoire ? { color: C.gold } : { color: C.red }]}>
+            {victoire ? 'VICTOIRE !' : 'DÉFAITE'}
+          </Text>
+          <Text style={S.finNiveau}>Niveau {duel.niveau} terminé</Text>
+        </View>
+
+        <View style={S.scoreBoard}>
+          <View style={S.scorePlayer}>
+            <View style={S.scoreAvatar}><Text style={S.scoreAvatarText}>👤</Text></View>
+            <Text style={S.scoreName}>{pseudo}</Text>
+            <Text style={[S.scorePoints, victoire && { color: C.gold }]}>{duel.pointsJoueur}</Text>
+          </View>
+          <View style={S.scoreDivider}>
+            <View style={S.scoreDividerLine} />
+            <Text style={S.scoreDividerText}>VS</Text>
+            <View style={S.scoreDividerLine} />
+          </View>
+          <View style={[S.scorePlayer, { alignItems: 'flex-end' }]}>
+            <View style={[S.scoreAvatar, { backgroundColor: '#ffffff15' }]}><Text style={S.scoreAvatarText}>⚔️</Text></View>
+            <Text style={S.scoreName}>{duel.adversairePseudo}</Text>
+            <Text style={[S.scorePoints, !victoire && { color: C.red }]}>{duel.pointsAdversaire}</Text>
+          </View>
+        </View>
+
+        {/* Boutons selon le rôle */}
+        {estCreateur ? (
+          // CRÉATEUR : 3 boutons
+          <View style={S.buttonsColumn}>
+            <TouchableOpacity onPress={onChoisirNiveau} style={S.btnPrimaryFull} activeOpacity={0.85}>
+              <LinearGradient colors={['#6d28d9', '#9d5ff5']} style={S.btnPrimaryFullGrad}>
+                <Text style={S.btnIcon}>🎯</Text>
+                <View style={S.btnTextContainer}>
+                  <Text style={S.btnTitle}>Choisir un niveau</Text>
+                  <Text style={S.btnSubtitle}>Sélectionner un autre niveau</Text>
+                </View>
+                <Text style={S.btnArrow}>→</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={onRecommencer} style={S.btnPrimaryFull} activeOpacity={0.85}>
+              <LinearGradient colors={['#3a1a6a', '#5a2a8a']} style={S.btnPrimaryFullGrad}>
+                <Text style={S.btnIcon}>🔄</Text>
+                <View style={S.btnTextContainer}>
+                  <Text style={S.btnTitle}>Recommencer</Text>
+                  <Text style={S.btnSubtitle}>Rejouer le niveau {duel.niveau}</Text>
+                </View>
+                <Text style={S.btnArrow}>→</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={onQuitter} style={S.quitBtnFull} activeOpacity={0.85}>
+              <LinearGradient colors={['#dc2626', '#b91c1c']} style={S.quitBtnFullGrad}>
+                <Text style={S.quitBtnIcon}>🚪</Text>
+                <Text style={S.quitBtnText}>Quitter</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          // INVITÉ : 2 boutons
+          <View style={S.buttonsColumn}>
+            <Animated.View style={{ transform: [{ scale: boutonConfirmeAnime ? pulseAnim : 1 }] }}>
+              <TouchableOpacity 
+                onPress={onConfirmer} 
+                style={[S.btnConfirmFull, !actionCreateur && S.btnConfirmFullDisabled]} 
+                activeOpacity={0.85}
+                disabled={!actionCreateur}
+              >
+                <LinearGradient 
+                  colors={actionCreateur ? ['#f5a623', '#ffd166'] : [C.bgCardLit, C.bgCard]} 
+                  style={S.btnConfirmFullGrad}
+                >
+                  <Text style={S.btnConfirmIcon}>✅</Text>
+                  <View style={S.btnTextContainer}>
+                    <Text style={[S.btnTitle, actionCreateur && { color: C.bgDeep }]}>Confirmer</Text>
+                    <Text style={[S.btnSubtitle, actionCreateur && { color: C.bgDeep + 'aa' }]}>
+                      {actionCreateur ? `Partie suivant - ${actionCreateur}` : 'En attente du choix...'}
+                    </Text>
+                  </View>
+                  <Text style={[S.btnArrow, actionCreateur && { color: C.bgDeep }]}>→</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </Animated.View>
+
+            <TouchableOpacity onPress={onQuitter} style={S.quitBtnFull} activeOpacity={0.85}>
+              <LinearGradient colors={['#dc2626', '#b91c1c']} style={S.quitBtnFullGrad}>
+                <Text style={S.quitBtnIcon}>🚪</Text>
+                <Text style={S.quitBtnText}>Quitter</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        )}
+      </LinearGradient>
+    </Animated.View>
   );
 };
 
@@ -199,7 +475,7 @@ export const MondeDuel: React.FC<Props> = ({
 //  NOTIFICATIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const NotificationAbandon: React.FC<{ visible: boolean; adversaire: string; pointsGagnes: number; onOk: () => void }> = ({ visible, adversaire, pointsGagnes, onOk }) => {
+const NotificationAbandon: React.FC<{ visible: boolean; adversaire: string; onOk: () => void }> = ({ visible, adversaire, onOk }) => {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   
   useEffect(() => {
@@ -215,8 +491,7 @@ const NotificationAbandon: React.FC<{ visible: boolean; adversaire: string; poin
           <Text style={S.notificationEmoji}>⚠️</Text>
           <Text style={S.notificationTitle}>Abandon de l'adversaire</Text>
           <Text style={S.notificationMessage}>
-            {adversaire} a abandonné le match.{'\n'}
-            Vous gagnez <Text style={{ fontWeight: 'bold', color: C.gold }}>+{pointsGagnes} points</Text> du niveau actuel.
+            {adversaire} a abandonné le match.{'\n'}Victoire par abandon !
           </Text>
           <TouchableOpacity onPress={onOk} style={S.notificationBtn} activeOpacity={0.7}>
             <LinearGradient colors={[C.primary, C.primaryDark]} style={S.notificationBtnGrad}>
@@ -257,13 +532,14 @@ const NotificationAdversaireQuitte: React.FC<{ visible: boolean; message: string
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  ÉCRAN ACCUEIL
+//  ÉCRAN ACCUEIL (avec sélection du niveau)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const EcranAccueil: React.FC<{ duel: ReturnType<typeof useDuel>; onRetour: () => void }> = ({ duel, onRetour }) => {
   const [codeInput, setCodeInput] = useState('');
   const [onglet, setOnglet] = useState<'creer' | 'rejoindre'>('creer');
   const [enCreation, setEnCreation] = useState(false);
+  const [niveauChoisi, setNiveauChoisi] = useState<number>(1);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(24)).current;
 
@@ -278,7 +554,7 @@ const EcranAccueil: React.FC<{ duel: ReturnType<typeof useDuel>; onRetour: () =>
     if (enCreation) return;
     setEnCreation(true);
     try {
-      await duel.creerSalle(1);
+      await duel.creerSalle(niveauChoisi);
     } finally {
       setEnCreation(false);
     }
@@ -304,14 +580,24 @@ const EcranAccueil: React.FC<{ duel: ReturnType<typeof useDuel>; onRetour: () =>
 
       {onglet === 'creer' ? (
         <>
-          <View style={S.niveauInfoCard}>
-            <LinearGradient colors={['#0d2554', '#1a4fd6']} style={S.niveauInfoGrad}>
-              <Text style={S.niveauInfoEmoji}>🌱</Text>
-              <Text style={S.niveauInfoTitle}>NIVEAU 1 (OBLIGATOIRE)</Text>
-              <Text style={S.niveauInfoDesc}>Débutant — Intervalle 1 à 100</Text>
-              <Text style={S.niveauInfoEssais}>10 essais maximum</Text>
-              <Text style={S.niveauInfoPoints}>🏆 +1000 points à gagner</Text>
-            </LinearGradient>
+          <Text style={S.sectionLabel}>CHOISIS LE NIVEAU DU DUEL</Text>
+          <View style={S.niveauxRow}>
+            {NIVEAUX_DUEL.map((n) => (
+              <TouchableOpacity
+                key={n.id}
+                style={[S.niveauChip, niveauChoisi === n.id && S.niveauChipActif, { borderColor: n.color }]}
+                onPress={() => setNiveauChoisi(n.id)}
+                activeOpacity={0.7}
+              >
+                <Text style={S.niveauChipIcon}>{n.icon}</Text>
+                <Text style={[S.niveauChipLabel, niveauChoisi === n.id && { color: n.color }]}>
+                  {n.label}
+                </Text>
+                <Text style={[S.niveauChipIntervalle, { color: n.color }]}>
+                  {n.min}-{n.max}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
 
           {duel.erreur ? (
@@ -323,7 +609,7 @@ const EcranAccueil: React.FC<{ duel: ReturnType<typeof useDuel>; onRetour: () =>
           <TouchableOpacity onPress={handleCreerSalle} activeOpacity={0.7} disabled={enCreation}>
             <LinearGradient colors={enCreation ? [C.bgCard, C.bgCard] : [C.primary, C.primaryDark]} style={S.btnPrimary}>
               <Text style={[S.btnPrimaryText, enCreation && { color: C.textHint }]}>
-                {enCreation ? '🔄  CRÉATION EN COURS...' : '⚔️  CRÉER LE DUEL (NIVEAU 1)'}
+                {enCreation ? '🔄  CRÉATION EN COURS...' : '⚔️  CRÉER LE DUEL'}
               </Text>
             </LinearGradient>
           </TouchableOpacity>
@@ -493,7 +779,7 @@ const EcranCompteARebours: React.FC<{ compte: number; adversaire: string }> = ({
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  ÉCRAN JEU EN COURS
+//  ÉCRAN JEU EN COURS — AVEC INTERVALLE FIXE (ne se réduit pas)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const EcranJeu: React.FC<{ duel: ReturnType<typeof useDuel>; pseudo: string }> = ({ duel, pseudo }) => {
@@ -553,8 +839,12 @@ const EcranJeu: React.FC<{ duel: ReturnType<typeof useDuel>; pseudo: string }> =
       return;
     }
     
-    if (val < niveauConfig.min || val > niveauConfig.max) {
-      setErreur(`Entre ${niveauConfig.min} et ${niveauConfig.max}`);
+    // ✅ INTERVALLE FIXE — on utilise les bornes du niveau (ne se réduit pas)
+    const minActuel = niveauConfig.min;
+    const maxActuel = niveauConfig.max;
+    
+    if (val < minActuel || val > maxActuel) {
+      setErreur(`Entre ${minActuel} et ${maxActuel}`);
       shakeInput();
       return;
     }
@@ -616,6 +906,7 @@ const EcranJeu: React.FC<{ duel: ReturnType<typeof useDuel>; pseudo: string }> =
         </View>
       </View>
 
+      {/* Intervalle FIXE (ne se réduit pas) */}
       <View style={S.intervalleCard}>
         <Text style={S.intervalleLabel}>INTERVALLE DU NIVEAU {duel.niveau}</Text>
         <View style={S.intervalleRow}>
@@ -711,253 +1002,7 @@ const EcranJeu: React.FC<{ duel: ReturnType<typeof useDuel>; pseudo: string }> =
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  ÉCRAN VICTOIRE DE MANCHE (PREMIUM AVEC BOUTONS CORRIGÉS)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-const EcranVictoireManche: React.FC<{ 
-  duel: ReturnType<typeof useDuel>; 
-  pseudo: string; 
-  onQuitter: () => void; 
-  onVoirResultat: () => void;
-}> = ({ duel, pseudo, onQuitter, onVoirResultat }) => {
-  const scaleAnim = useRef(new Animated.Value(0.9)).current;
-  const glowAnim = useRef(new Animated.Value(0)).current;
-  const [showConfetti, setShowConfetti] = useState(false);
-
-  useEffect(() => {
-    Animated.spring(scaleAnim, { toValue: 1, friction: 8, tension: 40, useNativeDriver: true }).start();
-    Animated.loop(Animated.sequence([
-      Animated.timing(glowAnim, { toValue: 1, duration: 1200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      Animated.timing(glowAnim, { toValue: 0.3, duration: 1200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-    ])).start();
-    setTimeout(() => setShowConfetti(true), 100);
-  }, []);
-
-  const estDernierNiveau = duel.niveau === 4;
-  const prochainPoints = duel.niveau === 1 ? 2000 : duel.niveau === 2 ? 3000 : 5000;
-  const nextLevel = duel.niveau + 1;
-
-  return (
-    <Animated.View style={[S.victoryContainer, { transform: [{ scale: scaleAnim }] }]}>
-      <LinearGradient colors={['#0a2e1a', '#0b4d20', '#0d5e28']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={S.victoryCard}>
-        <Animated.View style={[S.victoryGlow, { opacity: glowAnim }]} />
-        
-        {showConfetti && (
-          <View style={S.confettiContainer}>
-            <Text style={[S.confetti, { top: 20, left: 20 }]}>✨</Text>
-            <Text style={[S.confetti, { top: 50, right: 30 }]}>🎉</Text>
-            <Text style={[S.confetti, { bottom: 80, left: 40 }]}>⭐</Text>
-            <Text style={[S.confetti, { bottom: 40, right: 50 }]}>🌟</Text>
-          </View>
-        )}
-
-        <View style={S.victoryHeader}>
-          <View style={S.victoryIconWrapper}>
-            <LinearGradient colors={['#f5a623', '#ffd166']} style={S.victoryIconCircle}>
-              <Text style={S.victoryIcon}>🏆</Text>
-            </LinearGradient>
-          </View>
-          <Text style={S.victoryTitle}>NIVEAU {duel.niveau} COMPLÉTÉ</Text>
-          <View style={S.victoryPointsPill}>
-            <Text style={S.victoryPointsValue}>+{duel.pointsNiveauGagnes}</Text>
-            <Text style={S.victoryPointsLabel}>POINTS GAGNÉS</Text>
-          </View>
-        </View>
-
-        <View style={S.scoreBoard}>
-          <View style={S.scorePlayer}>
-            <View style={S.scoreAvatar}><Text style={S.scoreAvatarText}>👤</Text></View>
-            <Text style={S.scoreName}>{pseudo}</Text>
-            <Text style={S.scorePoints}>{duel.pointsJoueur}</Text>
-          </View>
-          <View style={S.scoreDivider}>
-            <View style={S.scoreDividerLine} />
-            <Text style={S.scoreDividerText}>VS</Text>
-            <View style={S.scoreDividerLine} />
-          </View>
-          <View style={[S.scorePlayer, { alignItems: 'flex-end' }]}>
-            <View style={[S.scoreAvatar, { backgroundColor: '#ffffff15' }]}><Text style={S.scoreAvatarText}>⚔️</Text></View>
-            <Text style={S.scoreName}>{duel.adversairePseudo}</Text>
-            <Text style={S.scorePoints}>{duel.pointsAdversaire}</Text>
-          </View>
-        </View>
-
-        {!estDernierNiveau ? (
-          !duel.confirmationEnvoyee ? (
-            <View style={S.actionButtons}>
-              <TouchableOpacity onPress={duel.continuerMancheSuivante} style={S.primaryBtn} activeOpacity={0.85}>
-                <LinearGradient colors={['#6d28d9', '#9d5ff5']} style={S.primaryBtnGrad}>
-                  <Text style={S.primaryBtnIcon}>⚡</Text>
-                  <View style={S.primaryBtnTextContainer}>
-                    <Text style={S.primaryBtnTitle}>NIVEAU {nextLevel}</Text>
-                    <Text style={S.primaryBtnSubtitle}>+{prochainPoints} pts</Text>
-                  </View>
-                  <Text style={S.primaryBtnArrow}>→</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-              
-              <TouchableOpacity onPress={onQuitter} style={S.quitBtn} activeOpacity={0.85}>
-                <LinearGradient colors={['#dc2626', '#b91c1c']} style={S.quitBtnGrad}>
-                  <Text style={S.quitBtnIcon}>🚪</Text>
-                  <Text style={S.quitBtnText}>QUITTER</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={S.waitingCard}>
-              <View style={S.waitingSpinner}><Text style={S.waitingSpinnerIcon}>⏳</Text></View>
-              <Text style={S.waitingTitle}>En attente de l'adversaire</Text>
-              <Text style={S.waitingSubtitle}>{duel.adversaireAConfirme ? "L'adversaire a confirmé, à vous de jouer" : "Confirmation en cours..."}</Text>
-              {duel.confirmationEnvoyee && (<View style={S.confirmBadge}><Text style={S.confirmBadgeText}>✓ Votre confirmation envoyée</Text></View>)}
-            </View>
-          )
-        ) : (
-          <View style={S.actionButtons}>
-            <TouchableOpacity onPress={onVoirResultat} style={S.primaryBtn} activeOpacity={0.85}>
-              <LinearGradient colors={['#f5a623', '#ffd166']} style={S.primaryBtnGrad}>
-                <Text style={S.primaryBtnIcon}>🏆</Text>
-                <View style={S.primaryBtnTextContainer}>
-                  <Text style={S.primaryBtnTitle}>RÉSULTAT FINAL</Text>
-                </View>
-                <Text style={S.primaryBtnArrow}>→</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-            
-            <TouchableOpacity onPress={onQuitter} style={S.quitBtn} activeOpacity={0.85}>
-              <LinearGradient colors={['#dc2626', '#b91c1c']} style={S.quitBtnGrad}>
-                <Text style={S.quitBtnIcon}>🚪</Text>
-                <Text style={S.quitBtnText}>QUITTER</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-        )}
-      </LinearGradient>
-    </Animated.View>
-  );
-};
-
-// ═══════════════════════════════════════════════════════════════════════════════
-//  ÉCRAN DÉFAITE DE MANCHE (PREMIUM AVEC BOUTONS CORRIGÉS)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-const EcranDefaiteManche: React.FC<{ 
-  duel: ReturnType<typeof useDuel>; 
-  pseudo: string; 
-  onQuitter: () => void; 
-  onVoirResultat: () => void;
-}> = ({ duel, pseudo, onQuitter, onVoirResultat }) => {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(30)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: 0, duration: 600, useNativeDriver: true }),
-    ]).start();
-    Animated.loop(Animated.sequence([
-      Animated.timing(pulseAnim, { toValue: 1.1, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      Animated.timing(pulseAnim, { toValue: 1, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-    ])).start();
-  }, []);
-
-  const estDernierNiveau = duel.niveau === 4;
-  const prochainPoints = duel.niveau === 1 ? 2000 : duel.niveau === 2 ? 3000 : 5000;
-  const nextLevel = duel.niveau + 1;
-
-  return (
-    <Animated.View style={[S.defeatContainer, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-      <LinearGradient colors={['#2a0a0a', '#4a1010', '#6a1515']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={S.defeatCard}>
-        <View style={S.defeatHeader}>
-          <Animated.View style={[S.defeatIconWrapper, { transform: [{ scale: pulseAnim }] }]}>
-            <LinearGradient colors={['#f05252', '#a01515']} style={S.defeatIconCircle}>
-              <Text style={S.defeatIcon}>💀</Text>
-            </LinearGradient>
-          </Animated.View>
-          <Text style={S.defeatTitle}>DÉFAITE AU NIVEAU {duel.niveau}</Text>
-          <View style={S.defeatBadge}><Text style={S.defeatBadgeText}>L'adversaire a remporté ce niveau</Text></View>
-        </View>
-
-        <View style={S.scoreBoard}>
-          <View style={S.scorePlayer}>
-            <View style={[S.scoreAvatar, { backgroundColor: '#ffffff08' }]}><Text style={S.scoreAvatarText}>👤</Text></View>
-            <Text style={[S.scoreName, { color: '#aaaaaa' }]}>{pseudo}</Text>
-            <Text style={[S.scorePoints, { color: '#aaaaaa' }]}>{duel.pointsJoueur}</Text>
-          </View>
-          <View style={S.scoreDivider}>
-            <View style={S.scoreDividerLine} />
-            <Text style={S.scoreDividerText}>VS</Text>
-            <View style={S.scoreDividerLine} />
-          </View>
-          <View style={[S.scorePlayer, { alignItems: 'flex-end' }]}>
-            <View style={[S.scoreAvatar, { backgroundColor: '#f0525220' }]}><Text style={S.scoreAvatarText}>⚔️</Text></View>
-            <Text style={[S.scoreName, { color: '#f05252' }]}>{duel.adversairePseudo}</Text>
-            <Text style={[S.scorePoints, { color: '#f05252' }]}>{duel.pointsAdversaire}</Text>
-          </View>
-        </View>
-
-        {!estDernierNiveau ? (
-          <>
-            <View style={S.nextLevelInfo}>
-              <Text style={S.nextLevelInfoIcon}>📈</Text>
-              <Text style={S.nextLevelInfoText}>{prochainPoints} points à gagner au niveau {nextLevel}</Text>
-            </View>
-            {!duel.confirmationEnvoyee ? (
-              <View style={S.actionButtons}>
-                <TouchableOpacity onPress={duel.continuerMancheSuivante} style={S.primaryBtn} activeOpacity={0.85}>
-                  <LinearGradient colors={['#3a1a6a', '#5a2a8a']} style={S.primaryBtnGrad}>
-                    <Text style={S.primaryBtnIcon}>🔄</Text>
-                    <View style={S.primaryBtnTextContainer}>
-                      <Text style={S.primaryBtnTitle}>CONTINUER</Text>
-                      <Text style={S.primaryBtnSubtitle}>Niveau {nextLevel}</Text>
-                    </View>
-                    <Text style={S.primaryBtnArrow}>→</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-                
-                <TouchableOpacity onPress={onQuitter} style={S.quitBtn} activeOpacity={0.85}>
-                  <LinearGradient colors={['#dc2626', '#b91c1c']} style={S.quitBtnGrad}>
-                    <Text style={S.quitBtnIcon}>🚪</Text>
-                    <Text style={S.quitBtnText}>QUITTER</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <View style={S.waitingCard}>
-                <View style={S.waitingSpinner}><Text style={S.waitingSpinnerIcon}>⏳</Text></View>
-                <Text style={S.waitingTitle}>En attente de l'adversaire</Text>
-                <Text style={S.waitingSubtitle}>{duel.adversaireAConfirme ? "L'adversaire a confirmé, à vous de jouer" : "Confirmation en cours..."}</Text>
-                {duel.confirmationEnvoyee && (<View style={S.confirmBadge}><Text style={S.confirmBadgeText}>✓ Votre confirmation envoyée</Text></View>)}
-              </View>
-            )}
-          </>
-        ) : (
-          <View style={S.actionButtons}>
-            <TouchableOpacity onPress={onVoirResultat} style={S.primaryBtn} activeOpacity={0.85}>
-              <LinearGradient colors={['#f5a623', '#ffd166']} style={S.primaryBtnGrad}>
-                <Text style={S.primaryBtnIcon}>🏆</Text>
-                <View style={S.primaryBtnTextContainer}>
-                  <Text style={S.primaryBtnTitle}>RÉSULTAT FINAL</Text>
-                </View>
-                <Text style={S.primaryBtnArrow}>→</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-            
-            <TouchableOpacity onPress={onQuitter} style={S.quitBtn} activeOpacity={0.85}>
-              <LinearGradient colors={['#dc2626', '#b91c1c']} style={S.quitBtnGrad}>
-                <Text style={S.quitBtnIcon}>🚪</Text>
-                <Text style={S.quitBtnText}>QUITTER</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-        )}
-      </LinearGradient>
-    </Animated.View>
-  );
-};
-
-// ═══════════════════════════════════════════════════════════════════════════════
-//  ÉCRAN VICTOIRE PAR ABANDON (PREMIUM)
+//  ÉCRAN VICTOIRE PAR ABANDON
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const EcranVictoireParAbandon: React.FC<{ duel: ReturnType<typeof useDuel>; pseudo: string; onRetour: () => void }> = ({ duel, pseudo, onRetour }) => {
@@ -974,7 +1019,6 @@ const EcranVictoireParAbandon: React.FC<{ duel: ReturnType<typeof useDuel>; pseu
     setTimeout(() => setShowStars(true), 100);
   }, []);
 
-  const pointsGagnes = duel.abandonData?.pointsGagnes || 0;
   const niveauAbandon = duel.abandonData?.niveau || duel.niveau;
 
   return (
@@ -990,15 +1034,15 @@ const EcranVictoireParAbandon: React.FC<{ duel: ReturnType<typeof useDuel>; pseu
         <View style={S.abandonInfoCard}>
           <View style={S.abandonInfoRow}><Text style={S.abandonInfoLabel}>Niveau</Text><Text style={S.abandonInfoValue}>{niveauAbandon}</Text></View>
           <View style={S.abandonDivider} />
-          <View style={S.abandonInfoRow}><Text style={S.abandonInfoLabel}>Points gagnés</Text><Text style={[S.abandonInfoValue, { color: '#ffd166' }]}>+{pointsGagnes}</Text></View>
+          <View style={S.abandonInfoRow}><Text style={S.abandonInfoLabel}>Résultat</Text><Text style={[S.abandonInfoValue, { color: '#ffd166' }]}>Victoire</Text></View>
         </View>
         <View style={S.abandonScoreBoard}>
           <View style={S.abandonScoreItem}><Text style={S.abandonScoreLabel}>VOTRE SCORE</Text><Text style={S.abandonScoreValue}>{duel.pointsJoueur}</Text></View>
           <View style={S.abandonScoreDivider}><Text style={S.abandonScoreDividerText}>🏆</Text></View>
           <View style={[S.abandonScoreItem, { alignItems: 'flex-end' }]}><Text style={S.abandonScoreLabel}>ADVERSAIRE</Text><Text style={[S.abandonScoreValue, { color: '#888' }]}>{duel.pointsAdversaire}</Text></View>
         </View>
-        <TouchableOpacity onPress={onRetour} style={S.quitBtn} activeOpacity={0.85}>
-          <LinearGradient colors={['#dc2626', '#b91c1c']} style={S.quitBtnGrad}>
+        <TouchableOpacity onPress={onRetour} style={S.quitBtnFull} activeOpacity={0.85}>
+          <LinearGradient colors={['#dc2626', '#b91c1c']} style={S.quitBtnFullGrad}>
             <Text style={S.quitBtnIcon}>←</Text>
             <Text style={S.quitBtnText}>MENU</Text>
           </LinearGradient>
@@ -1009,7 +1053,7 @@ const EcranVictoireParAbandon: React.FC<{ duel: ReturnType<typeof useDuel>; pseu
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  ÉCRAN DÉFAITE PAR ABANDON (PREMIUM)
+//  ÉCRAN DÉFAITE PAR ABANDON
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const EcranDefaiteParAbandon: React.FC<{ duel: ReturnType<typeof useDuel>; pseudo: string; onRetour: () => void }> = ({ duel, pseudo, onRetour }) => {
@@ -1037,9 +1081,9 @@ const EcranDefaiteParAbandon: React.FC<{ duel: ReturnType<typeof useDuel>; pseud
           <View style={S.abandonDefeatBadge}><Text style={S.abandonDefeatBadgeText}>Vous avez abandonné le match</Text></View>
         </View>
         <View style={S.abandonInfoCardDefeat}>
-          <View style={S.abandonInfoRowDefeat}><Text style={S.abandonInfoLabelDefeat}>Points perdus</Text><Text style={[S.abandonInfoValueDefeat, { color: '#f05252' }]}>0</Text></View>
+          <View style={S.abandonInfoRowDefeat}><Text style={S.abandonInfoLabelDefeat}>Résultat</Text><Text style={[S.abandonInfoValueDefeat, { color: '#f05252' }]}>Défaite</Text></View>
           <View style={S.abandonDividerDefeat} />
-          <View style={S.abandonInfoRowDefeat}><Text style={S.abandonInfoLabelDefeat}>Points conservés</Text><Text style={S.abandonInfoValueDefeat}>{duel.pointsJoueur}</Text></View>
+          <View style={S.abandonInfoRowDefeat}><Text style={S.abandonInfoLabelDefeat}>Score final</Text><Text style={S.abandonInfoValueDefeat}>{duel.pointsJoueur}</Text></View>
         </View>
         <View style={S.abandonScoreBoardDefeat}>
           <View style={S.abandonScoreItemDefeat}><Text style={S.abandonScoreLabelDefeat}>VOTRE SCORE</Text><Text style={S.abandonScoreValueDefeat}>{duel.pointsJoueur}</Text></View>
@@ -1049,10 +1093,10 @@ const EcranDefaiteParAbandon: React.FC<{ duel: ReturnType<typeof useDuel>; pseud
         <View style={S.abandonMessageCard}>
           <Text style={S.abandonMessageIcon}>⚠️</Text>
           <Text style={S.abandonMessageTitle}>Pas de pénalité</Text>
-          <Text style={S.abandonMessageText}>Vous avez abandonné volontairement. Aucun point n'a été déduit.</Text>
+          <Text style={S.abandonMessageText}>Vous avez abandonné volontairement.</Text>
         </View>
-        <TouchableOpacity onPress={onRetour} style={S.quitBtn} activeOpacity={0.85}>
-          <LinearGradient colors={['#dc2626', '#b91c1c']} style={S.quitBtnGrad}>
+        <TouchableOpacity onPress={onRetour} style={S.quitBtnFull} activeOpacity={0.85}>
+          <LinearGradient colors={['#dc2626', '#b91c1c']} style={S.quitBtnFullGrad}>
             <Text style={S.quitBtnIcon}>←</Text>
             <Text style={S.quitBtnText}>MENU</Text>
           </LinearGradient>
@@ -1146,7 +1190,7 @@ const EcranAdversaireParti: React.FC<{ duel: ReturnType<typeof useDuel>; onRetou
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  STYLES COMPLETS (VERSION PREMIUM AVEC BOUTONS CORRIGÉS)
+//  STYLES
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const S = StyleSheet.create({
@@ -1160,45 +1204,54 @@ const S = StyleSheet.create({
   headerStateBadge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 12, borderWidth: 1 },
   headerStateText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  classementBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: C.bgCardLit, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border },
-  classementBtnText: { fontSize: 20 },
+  classementBtn: { width: 40, height: 40, borderRadius: 12, overflow: 'hidden' },
+  classementIconGrad: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  classementIconText: { fontSize: 22 },
   scroll: { padding: 16, paddingBottom: 52 },
+  
   duelBanner: { borderRadius: 24, padding: 28, alignItems: 'center', marginBottom: 20, overflow: 'hidden', shadowColor: '#6d28d9', shadowOpacity: 0.4, shadowRadius: 20, elevation: 12 },
   duelBannerBg: { position: 'absolute', width: 200, height: 200, borderRadius: 100, backgroundColor: '#ffffff08', top: -60, right: -40 },
   duelBannerEmoji: { fontSize: 52, marginBottom: 10 },
   duelBannerTitle: { color: '#fff', fontSize: 26, fontWeight: '900', letterSpacing: 3, marginBottom: 8 },
   duelBannerSub: { color: '#ffffffcc', fontSize: 14, textAlign: 'center', lineHeight: 22 },
+  
   ongletRow: { flexDirection: 'row', gap: 10, marginBottom: 22 },
   onglet: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: 14, backgroundColor: C.bgCard, borderWidth: 1, borderColor: C.border },
   ongletActif: { backgroundColor: '#1a0a3a', borderColor: '#6d28d9' },
   ongletText: { color: C.textSecond, fontSize: 13, fontWeight: '700' },
   ongletTextActif: { color: '#9d5ff5' },
-  niveauInfoCard: { borderRadius: 20, overflow: 'hidden', marginBottom: 24, shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 12, elevation: 8 },
-  niveauInfoGrad: { padding: 24, alignItems: 'center' },
-  niveauInfoEmoji: { fontSize: 48, marginBottom: 8 },
-  niveauInfoTitle: { fontSize: 22, fontWeight: '900', color: '#fff', letterSpacing: 2, marginBottom: 8 },
-  niveauInfoDesc: { fontSize: 14, color: '#ffffffcc', marginBottom: 4 },
-  niveauInfoEssais: { fontSize: 13, color: '#ffffffaa', fontWeight: '600', marginBottom: 4 },
-  niveauInfoPoints: { fontSize: 13, color: '#f0b429', fontWeight: '800' },
+  
   sectionLabel: { color: C.textSecond, fontSize: 11, fontWeight: '900', letterSpacing: 2.5, marginBottom: 12 },
+  
+  niveauxRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
+  niveauChip: { flex: 1, minWidth: '45%', backgroundColor: C.bgCard, borderRadius: 16, padding: 12, alignItems: 'center', borderWidth: 1.5, borderColor: C.border },
+  niveauChipActif: { backgroundColor: C.bgCardLit, borderWidth: 2 },
+  niveauChipIcon: { fontSize: 24, marginBottom: 4 },
+  niveauChipLabel: { color: C.textPrimary, fontSize: 14, fontWeight: '800', marginBottom: 2 },
+  niveauChipIntervalle: { fontSize: 12, fontWeight: '600' },
+  
   codeInputCard: { backgroundColor: C.bgCard, borderRadius: 18, padding: 18, borderWidth: 1, borderColor: C.border, marginBottom: 20 },
   codeInputLabel: { color: C.textSecond, fontSize: 11, fontWeight: '800', letterSpacing: 2, marginBottom: 12 },
   codeInput: { backgroundColor: C.bgCardLit, borderRadius: 14, borderWidth: 1.5, borderColor: C.borderLit, paddingVertical: 18, paddingHorizontal: 20, color: C.textPrimary, fontSize: 28, fontWeight: '900', textAlign: 'center', letterSpacing: 8, marginBottom: 10 },
   codeInputHint: { color: C.textHint, fontSize: 12, textAlign: 'center' },
+  
   erreurBox: { backgroundColor: C.redBg, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: C.redDark, marginBottom: 16 },
   erreurRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   erreurDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.red },
   erreurText: { color: C.red, fontSize: 13, fontWeight: '700' },
+  
   btnPrimary: { borderRadius: 16, paddingVertical: 18, alignItems: 'center', marginBottom: 12 },
   btnPrimaryText: { color: '#fff', fontSize: 16, fontWeight: '900', letterSpacing: 1.5 },
   btnAnnuler: { borderRadius: 14, overflow: 'hidden', marginBottom: 12 },
   btnAnnulerGrad: { paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: C.border },
   btnAnnulerText: { color: C.textBody, fontSize: 14, fontWeight: '700' },
+  
   centreEcran: { alignItems: 'center', paddingTop: 40, paddingBottom: 20 },
   attenteIndicateur: { marginBottom: 20 },
   attenteTitle: { color: C.textPrimary, fontSize: 22, fontWeight: '900', marginBottom: 8, textAlign: 'center' },
   attenteSub: { color: C.textBody, fontSize: 15, marginBottom: 28, textAlign: 'center' },
   attenteNote: { color: C.textHint, fontSize: 13, textAlign: 'center', lineHeight: 20, marginBottom: 28 },
+  
   codeCard: { backgroundColor: C.bgCard, borderRadius: 22, padding: 24, borderWidth: 1, borderColor: '#3d1a8a', alignItems: 'center', width: '100%', marginBottom: 24 },
   codeCardLabel: { color: C.textSecond, fontSize: 11, fontWeight: '800', letterSpacing: 2, marginBottom: 10 },
   codeCardValue: { color: '#9d5ff5', fontSize: 42, fontWeight: '900', letterSpacing: 12, marginBottom: 18, textShadowColor: '#6d28d9', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 12 },
@@ -1208,15 +1261,19 @@ const S = StyleSheet.create({
   codeShareBtn: { flex: 1, borderRadius: 12, overflow: 'hidden' },
   codeShareGrad: { paddingVertical: 13, alignItems: 'center' },
   codeShareText: { color: '#fff', fontSize: 14, fontWeight: '800' },
+  
   adversaireConnecteCard: { backgroundColor: C.greenBg, borderRadius: 20, padding: 20, alignItems: 'center', marginBottom: 24, borderWidth: 1, borderColor: C.green, width: '100%' },
   adversaireConnecteEmoji: { fontSize: 48, marginBottom: 12 },
   adversaireConnecteText: { color: C.green, fontSize: 18, fontWeight: '800', textAlign: 'center', marginBottom: 8 },
   adversaireConnecteSub: { color: C.textBody, fontSize: 14, textAlign: 'center' },
+  
   spinnerEmoji: { fontSize: 48, marginBottom: 20 },
   chargementText: { color: C.textBody, fontSize: 16, fontWeight: '600' },
+  
   compteAdversaire: { color: C.textBody, fontSize: 16, fontWeight: '700', marginBottom: 20 },
   compteChiffre: { color: C.gold, fontSize: 96, fontWeight: '900', textShadowColor: C.gold, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 24 },
   compteSous: { color: C.textBody, fontSize: 18, fontWeight: '600', marginTop: 12 },
+  
   vsBandeau: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.bgCard, borderRadius: 20, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: C.border },
   vsJoueur: { flex: 1, alignItems: 'flex-start' },
   vsNom: { color: C.textPrimary, fontSize: 14, fontWeight: '800', marginBottom: 4 },
@@ -1227,11 +1284,13 @@ const S = StyleSheet.create({
   vsTimer: { fontSize: 28, fontWeight: '900', textAlign: 'center' },
   vsTimerTrack: { width: 56, height: 4, backgroundColor: C.border, borderRadius: 2, overflow: 'hidden', marginTop: 6 },
   vsTimerFill: { height: 4, borderRadius: 2 },
+  
   intervalleCard: { backgroundColor: C.bgCard, borderRadius: 16, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: C.border },
   intervalleLabel: { color: C.textSecond, fontSize: 10, fontWeight: '800', letterSpacing: 2, marginBottom: 8 },
   intervalleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   intervalleNum: { color: C.textBody, fontSize: 14, fontWeight: '700' },
   intervalleBar: { flex: 1, height: 3, borderRadius: 2, overflow: 'hidden', backgroundColor: C.border },
+  
   indiceBox: { flexDirection: 'row', alignItems: 'center', gap: 14, borderRadius: 16, padding: 16, marginBottom: 14, borderWidth: 1.5, borderColor: C.border, backgroundColor: C.bgCard },
   indicePlus: { backgroundColor: C.blueBg, borderColor: C.blue },
   indiceMoins: { backgroundColor: C.redBg, borderColor: C.red },
@@ -1240,6 +1299,7 @@ const S = StyleSheet.create({
   indiceSep: { width: 1.5, height: 32, backgroundColor: C.border },
   indiceMsg: { fontSize: 15, fontWeight: '800' },
   indiceHint: { fontSize: 12, color: C.textBody, marginTop: 2, fontWeight: '500' },
+  
   saisieCard: { backgroundColor: C.bgCard, borderRadius: 20, padding: 18, marginBottom: 12, borderWidth: 1, borderColor: C.border },
   saisieLabel: { fontSize: 13, fontWeight: '800', color: C.textSecond, letterSpacing: 2, marginBottom: 12 },
   saisieWrapper: { backgroundColor: C.bgCardLit, borderRadius: 14, borderWidth: 1.5, borderColor: C.borderLit, marginBottom: 10 },
@@ -1253,6 +1313,7 @@ const S = StyleSheet.create({
   btnAbandonner: { borderRadius: 12, overflow: 'hidden', flex: 0.5 },
   btnAbandonnerGrad: { paddingVertical: 15, alignItems: 'center' },
   btnAbandonnerText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  
   histSection: { marginBottom: 8 },
   histTitle: { color: C.textSecond, fontSize: 12, fontWeight: '800', letterSpacing: 2, marginBottom: 8 },
   histChip: { backgroundColor: C.bgCard, borderRadius: 10, padding: 10, marginRight: 8, minWidth: 54, alignItems: 'center', borderWidth: 1, borderColor: C.border },
@@ -1261,6 +1322,7 @@ const S = StyleSheet.create({
   histChipEgal: { backgroundColor: C.greenBg, borderColor: C.green },
   histChipVal: { color: C.textPrimary, fontSize: 15, fontWeight: '900' },
   histChipIco: { color: C.textBody, fontSize: 13, marginTop: 2 },
+  
   notificationOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center' },
   notificationCard: { backgroundColor: C.bgCard, borderRadius: 24, padding: 24, alignItems: 'center', width: '80%', borderWidth: 1, borderColor: C.gold },
   notificationEmoji: { fontSize: 48, marginBottom: 16 },
@@ -1270,32 +1332,38 @@ const S = StyleSheet.create({
   notificationBtnGrad: { paddingVertical: 12, alignItems: 'center' },
   notificationBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   
-  // Styles Premium pour les écrans de manche
-  victoryContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
-  victoryCard: { borderRadius: 48, padding: 28, alignItems: 'center', overflow: 'hidden', shadowColor: '#0b4d20', shadowOpacity: 0.5, shadowRadius: 30, elevation: 25, width: '100%' },
-  victoryGlow: { position: 'absolute', width: 300, height: 300, borderRadius: 150, backgroundColor: '#16a34a', top: -80, alignSelf: 'center' },
+  // Styles pour l'écran de fin de manche
+  finContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  finCard: { borderRadius: 48, padding: 28, alignItems: 'center', overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 30, elevation: 25, width: '100%' },
+  finGlow: { position: 'absolute', width: 300, height: 300, borderRadius: 150, top: -80, alignSelf: 'center' },
+  finHeader: { alignItems: 'center', marginBottom: 24, zIndex: 1 },
+  finIconWrapper: { marginBottom: 16 },
+  finIconCircle: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', shadowColor: '#f5a623', shadowOpacity: 0.5, shadowRadius: 20 },
+  finIcon: { fontSize: 44 },
+  finTitle: { fontSize: 28, fontWeight: '900', letterSpacing: 2, marginBottom: 8, textAlign: 'center' },
+  finNiveau: { color: '#ffffffcc', fontSize: 14 },
+  
   confettiContainer: { position: 'absolute', width: '100%', height: '100%' },
   confetti: { position: 'absolute', fontSize: 24, opacity: 0.7 },
-  victoryHeader: { alignItems: 'center', marginBottom: 24, zIndex: 1 },
-  victoryIconWrapper: { marginBottom: 16 },
-  victoryIconCircle: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', shadowColor: '#f5a623', shadowOpacity: 0.5, shadowRadius: 20 },
-  victoryIcon: { fontSize: 44 },
-  victoryTitle: { color: '#fff', fontSize: 22, fontWeight: '900', letterSpacing: 2, marginBottom: 12, textAlign: 'center' },
-  victoryPointsPill: { backgroundColor: '#ffffff20', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 40, alignItems: 'center' },
-  victoryPointsValue: { color: '#ffd166', fontSize: 28, fontWeight: '900' },
-  victoryPointsLabel: { color: '#ffffffaa', fontSize: 11, fontWeight: '700', letterSpacing: 1.5 },
   
-  defeatContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
-  defeatCard: { borderRadius: 48, padding: 28, alignItems: 'center', overflow: 'hidden', shadowColor: '#6a1515', shadowOpacity: 0.5, shadowRadius: 30, elevation: 25, width: '100%' },
-  defeatHeader: { alignItems: 'center', marginBottom: 24, zIndex: 1 },
-  defeatIconWrapper: { marginBottom: 16 },
-  defeatIconCircle: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', shadowColor: '#f05252', shadowOpacity: 0.4, shadowRadius: 20 },
-  defeatIcon: { fontSize: 44 },
-  defeatTitle: { color: '#fff', fontSize: 22, fontWeight: '900', letterSpacing: 2, marginBottom: 12, textAlign: 'center' },
-  defeatBadge: { backgroundColor: '#ffffff15', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 40 },
-  defeatBadgeText: { color: '#f05252', fontSize: 13, fontWeight: '700' },
+  buttonsColumn: { flexDirection: 'column', gap: 12, width: '100%', marginTop: 8, marginBottom: 8 },
+  btnPrimaryFull: { borderRadius: 60, overflow: 'hidden', shadowColor: '#6d28d9', shadowOpacity: 0.4, shadowRadius: 12, elevation: 6, width: '100%' },
+  btnPrimaryFullGrad: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 18, paddingHorizontal: 24 },
+  btnConfirmFull: { borderRadius: 60, overflow: 'hidden', width: '100%' },
+  btnConfirmFullDisabled: { opacity: 0.5 },
+  btnConfirmFullGrad: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 18, paddingHorizontal: 24 },
+  btnIcon: { fontSize: 24, color: '#fff' },
+  btnConfirmIcon: { fontSize: 22 },
+  btnTextContainer: { alignItems: 'center' },
+  btnTitle: { fontSize: 16, fontWeight: '900', letterSpacing: 1, color: '#fff' },
+  btnSubtitle: { fontSize: 12, fontWeight: '700', marginTop: 2, color: '#ffffffcc' },
+  btnArrow: { fontSize: 24, color: '#fff' },
   
-  // Score Board commun
+  quitBtnFull: { borderRadius: 60, overflow: 'hidden', backgroundColor: '#dc2626', shadowColor: '#ff0000', shadowOpacity: 0.4, shadowRadius: 10, elevation: 5, width: '100%' },
+  quitBtnFullGrad: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 18, paddingHorizontal: 16, borderWidth: 1.5, borderColor: '#e20c0c' },
+  quitBtnIcon: { fontSize: 22, color: '#fff' },
+  quitBtnText: { color: '#fff', fontSize: 16, fontWeight: '900', letterSpacing: 1.5 },
+  
   scoreBoard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#00000030', borderRadius: 28, padding: 20, marginBottom: 28, width: '100%' },
   scorePlayer: { flex: 1, alignItems: 'center' },
   scoreAvatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#ffffff15', alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
@@ -1305,33 +1373,6 @@ const S = StyleSheet.create({
   scoreDivider: { paddingHorizontal: 16, alignItems: 'center' },
   scoreDividerLine: { width: 40, height: 1, backgroundColor: '#ffffff30', marginVertical: 4 },
   scoreDividerText: { color: '#ffffff80', fontSize: 12, fontWeight: '700' },
-  
-  // Boutons appairés (même hauteur)
-  actionButtons: { flexDirection: 'row', gap: 16, width: '100%', marginTop: 8, marginBottom: 8 },
-  primaryBtn: { flex: 2, borderRadius: 60, overflow: 'hidden', shadowColor: '#6d28d9', shadowOpacity: 0.4, shadowRadius: 12, elevation: 6 },
-  primaryBtnGrad: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 18, paddingHorizontal: 24 },
-  primaryBtnIcon: { fontSize: 24, color: '#fff' },
-  primaryBtnTextContainer: { alignItems: 'center' },
-  primaryBtnTitle: { color: '#fff', fontSize: 16, fontWeight: '900', letterSpacing: 1 },
-  primaryBtnSubtitle: { color: '#ffd166', fontSize: 13, fontWeight: '700', marginTop: 2 },
-  primaryBtnArrow: { fontSize: 24, color: '#fff' },
-  
-  quitBtn: { flex: 1, borderRadius: 60, overflow: 'hidden', backgroundColor: '#dc2626', shadowColor: '#ff0000', shadowOpacity: 0.4, shadowRadius: 10, elevation: 5 },
-  quitBtnGrad: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 18, paddingHorizontal: 16, borderWidth: 1.5, borderColor: '#ff8888' },
-  quitBtnIcon: { fontSize: 22, color: '#fff' },
-  quitBtnText: { color: '#fff', fontSize: 16, fontWeight: '900', letterSpacing: 1.5 },
-  
-  nextLevelInfo: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#ffffff10', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 40, marginBottom: 20 },
-  nextLevelInfoIcon: { fontSize: 18 },
-  nextLevelInfoText: { color: '#ffffffcc', fontSize: 13, fontWeight: '600' },
-  
-  waitingCard: { backgroundColor: '#00000040', borderRadius: 24, padding: 20, alignItems: 'center', width: '100%', marginBottom: 16 },
-  waitingSpinner: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#ffffff15', alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
-  waitingSpinnerIcon: { fontSize: 28 },
-  waitingTitle: { color: '#ffd166', fontSize: 16, fontWeight: '900', marginBottom: 6 },
-  waitingSubtitle: { color: '#ffffffaa', fontSize: 13, textAlign: 'center' },
-  confirmBadge: { backgroundColor: '#2ecc7a', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 30, marginTop: 12 },
-  confirmBadgeText: { color: '#fff', fontSize: 11, fontWeight: '800' },
   
   // Styles pour les écrans d'abandon
   abandonVictoryContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
@@ -1382,6 +1423,20 @@ const S = StyleSheet.create({
   abandonMessageIcon: { fontSize: 32, marginBottom: 12 },
   abandonMessageTitle: { color: '#ffd166', fontSize: 16, fontWeight: '900', marginBottom: 8 },
   abandonMessageText: { color: '#ffffffcc', fontSize: 13, textAlign: 'center', lineHeight: 20 },
+  
+  // Styles modaux
+  modalOverlay: { flex: 1, backgroundColor: '#000000aa', justifyContent: 'center', alignItems: 'center' },
+  modalBox: { borderRadius: 28, padding: 24, width: SCREEN_WIDTH - 48, alignItems: 'center' },
+  modalTitle: { color: '#fff', fontSize: 20, fontWeight: '800', marginBottom: 20, textAlign: 'center' },
+  niveauxModalRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'center', marginBottom: 24 },
+  niveauModalChip: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 16, borderWidth: 1.5, borderColor: C.border, alignItems: 'center', minWidth: 80 },
+  niveauModalIcon: { fontSize: 24, marginBottom: 4 },
+  niveauModalLabel: { fontSize: 12, fontWeight: '700' },
+  modalBtns: { flexDirection: 'row', gap: 12, width: '100%' },
+  btnAnnulerModal: { flex: 1, paddingVertical: 14, borderRadius: 14, backgroundColor: C.bgCardLit, alignItems: 'center', borderWidth: 1, borderColor: C.border },
+  btnAnnulerModalTxt: { color: C.textBody, fontSize: 14, fontWeight: '700' },
+  btnValiderModal: { flex: 1, paddingVertical: 14, borderRadius: 14, alignItems: 'center' },
+  btnValiderModalTxt: { color: '#fff', fontSize: 14, fontWeight: '800' },
   
   resultatCard: { borderRadius: 26, padding: 28, alignItems: 'center', overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 24, elevation: 16 },
   resultatGlow: { position: 'absolute', width: 180, height: 180, borderRadius: 90, top: -40, alignSelf: 'center' },

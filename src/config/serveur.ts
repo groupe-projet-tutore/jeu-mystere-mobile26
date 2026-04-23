@@ -15,8 +15,8 @@ export const API_PROTOCOL = 'http';
 export const WS_PROTOCOL = 'ws';
 
 // ── URLs complètes ──────────────────────────────────────────────────────────
-export const API_URL = `${API_PROTOCOL}://${SERVEUR_IP}:${PORT_API}/api`;
-export const WS_URL = `${WS_PROTOCOL}://${SERVEUR_IP}:${PORT_WS}/socket.io`;
+export const API_URL = `${API_PROTOCOL}://${SERVEUR_IP}:${PORT_API}`;
+export const WS_URL = `${WS_PROTOCOL}://${SERVEUR_IP}:${PORT_WS}`;
 
 // ── Configuration de synchronisation ────────────────────────────────────────
 export const SYNC_CONFIG = {
