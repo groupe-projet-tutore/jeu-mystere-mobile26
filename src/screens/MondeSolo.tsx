@@ -16,7 +16,7 @@ import { C, LEVEL_THEMES as LT } from '../styles/theme';
 import { useJeuSoloMobile } from '../hooks/useJeuSoloMobile';
 import type { PartieEnCours } from '../types/jeu';
 import { PseudoBadge } from '../components/PseudoBadge';
-import { ClassementSolo } from './ClassementSolo';
+import { Classement} from './Classement';
 
 const TEMPS_LIMITE = 30;
 
@@ -559,7 +559,7 @@ export const MondeSolo: React.FC<Props> = ({ onRetour, pseudo = 'Joueur', onPseu
 
       {/* Modal Classement Solo */}
       <Modal visible={showClassementSolo} animationType="slide" presentationStyle="fullScreen">
-        <ClassementSolo onRetour={() => setShowClassementSolo(false)} pseudo={pseudo} />
+        <Classement onRetour={() => setShowClassementSolo(false)} pseudo={pseudo} />
       </Modal>
     </View>
   );
@@ -682,7 +682,7 @@ const SelectionNiveau: React.FC<{
 
       <View style={S.navRow}>
         <TouchableOpacity onPress={onRetour} style={S.navBtn} activeOpacity={0.75}>
-          <Text style={S.navBtnText}>← Retour</Text>
+          <Text style={S.navBtnText}> Retour</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={onReinitialiser} style={[S.navBtn, S.navBtnDanger]} activeOpacity={0.75}>
           <Text style={S.navBtnDangerText}>↺ Réinitialiser tout</Text>

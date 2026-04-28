@@ -81,6 +81,8 @@ export const useDuel = (pseudo: string) => {
   // Nouveaux états pour le système post-manche
   const [actionCreateur, setActionCreateur] = useState<string | null>(null);
   const [prochainNiveauChoisi, setProchainNiveauChoisi] = useState<number>(1);
+  const [victoiresJoueur1, setVictoiresJoueur1] = useState<number>(0);
+  const [victoiresJoueur2, setVictoiresJoueur2] = useState<number>(0);
 
   const socketRef = useRef<Socket | null>(null);
   const timerAffichageRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -90,6 +92,7 @@ export const useDuel = (pseudo: string) => {
   const tentativeReconnexionRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const compteurTentativesRef = useRef<number>(0);
   const pseudoRef = useRef(pseudo);
+  const estHoteRef = useRef(false);
 
   const arreterTimerAffichage = useCallback(() => {
     if (timerAffichageRef.current) {
@@ -192,19 +195,21 @@ export const useDuel = (pseudo: string) => {
       setEstHote(true);
       setNiveau(data.niveau);
       setEtat('attente');
+      estHoteRef.current = true;
       pretEnvoyeRef.current = false;
       setActionCreateur(null);
     });
 
- socket.on('vous_avez_rejoint', (data: { adversaire: string; estHote: boolean; niveau: number }) => {
-  setAdversairePseudo(data.adversaire);
-  console.log('📡 vous_avez_rejoint - estHote reçu:', data.estHote);  
-  setEstHote(data.estHote);  // ← CORRECTION
-  setNiveau(data.niveau);
-  setEtat('attente');
-  pretEnvoyeRef.current = false;
-  setActionCreateur(null);
-});
+    socket.on('vous_avez_rejoint', (data: { adversaire: string; estHote: boolean; niveau: number }) => {
+      setAdversairePseudo(data.adversaire);
+      console.log('📡 vous_avez_rejoint - estHote reçu:', data.estHote);  
+      setEstHote(data.estHote);
+      setNiveau(data.niveau);
+      setEtat('attente');
+      estHoteRef.current = data.estHote;
+      pretEnvoyeRef.current = false;
+      setActionCreateur(null);
+    });
 
     socket.on('adversaire_rejoint', (data: { pseudo: string }) => {
       setAdversairePseudo(data.pseudo);
@@ -235,6 +240,8 @@ export const useDuel = (pseudo: string) => {
       debutPartieRef.current = Date.now();
       setEtat('en_cours');
       setActionCreateur(null);
+      setConfirmationEnvoyee(false);
+      setAdversaireAConfirme(false);
       
       const estMonTour = data.premierTour === pseudoRef.current;
       setMonTour(estMonTour);
@@ -246,51 +253,54 @@ export const useDuel = (pseudo: string) => {
         setTempsRestant(0);
       }
       
-      setConfirmationEnvoyee(false);
-      setAdversaireAConfirme(false);
       setAbandonData(null);
     });
-socket.on('victoire_manche', (data: {
-  vainqueur: string;
-  niveau: number;
-  pointsGagnes: number;
-  pointsJoueur1: number;
-  pointsJoueur2: number;
-  prochainNiveau: number;
-  pointsProchainNiveau: number;
-}) => {
-  nettoyerTimers();
-  
-  // ✅ CORRECTION : Adapter selon le rôle du joueur
-  if (estHote) {
-    // Créateur : ses points sont pointsJoueur1, l'adversaire pointsJoueur2
-    setPointsJoueur(data.pointsJoueur1);
-    setPointsAdversaire(data.pointsJoueur2);
-  } else {
-    // Invité : ses points sont pointsJoueur2, l'adversaire pointsJoueur1
-    setPointsJoueur(data.pointsJoueur2);
-    setPointsAdversaire(data.pointsJoueur1);
-  }
-  
-  setPointsNiveauGagnes(0);
-  setProchainNiveau(data.prochainNiveau);
-  setNiveau(data.niveau);
-  setConfirmationEnvoyee(false);
-  setAdversaireAConfirme(false);
-  
-  if (data.vainqueur === pseudoRef.current) {
-    setEtat('victoire_manche');
-  } else {
-    setEtat('defaite_manche');
-  }
-});
-    // Nouvel événement : le créateur a choisi une action
+
+    socket.on('victoire_manche', (data: {
+      vainqueur: string;
+      niveau: number;
+      victoiresJoueur1: number;
+      victoiresJoueur2: number;
+      joueur1: string;
+      joueur2: string;
+    }) => {
+      nettoyerTimers();
+
+      setVictoiresJoueur1(data.victoiresJoueur1);
+      setVictoiresJoueur2(data.victoiresJoueur2);
+
+      const mesVictoires = data.joueur1 === pseudoRef.current
+        ? data.victoiresJoueur1
+        : data.victoiresJoueur2;
+
+      const sesVictoires = data.joueur1 === pseudoRef.current
+        ? data.victoiresJoueur2
+        : data.victoiresJoueur1;
+
+      setPointsJoueur(mesVictoires);
+      setPointsAdversaire(sesVictoires);
+
+      setNiveau(data.niveau);
+      setConfirmationEnvoyee(false);
+      setAdversaireAConfirme(false);
+
+      if (data.vainqueur === pseudoRef.current) {
+        setEtat('victoire_manche');
+      } else {
+        setEtat('defaite_manche');
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  NOUVEAU: Le créateur a choisi une action (niveau ou recommencer)
+    //  ⚠️ CRITIQUE: C'est cet événement qui permet à l'invité de voir le choix !
+    // ═══════════════════════════════════════════════════════════════════════
     socket.on('createur_a_choisi', (data: { action: string; niveau: number }) => {
+      console.log('📡 createur_a_choisi reçu:', data);
       setActionCreateur(data.action);
       setProchainNiveauChoisi(data.niveau);
     });
 
-    // Nouvel événement : les deux ont confirmé, on lance le nouveau duel
     socket.on('nouveau_duel_prepare', (data: {
       niveau: number;
       nombreMystere: number;
@@ -303,11 +313,11 @@ socket.on('victoire_manche', (data: {
       setEssaisRestants(data.essaisMax);
       setPropositions([]);
       setEssaisAdversaire(0);
-      setPointsJoueur(0);
-      setPointsAdversaire(0);
       setCompteARebours(3);
       setEtat('compte_a_rebours');
       setActionCreateur(null);
+      setConfirmationEnvoyee(false);
+      setAdversaireAConfirme(false);
       
       const estMonTour = data.premierTour === pseudoRef.current;
       setMonTour(estMonTour);
@@ -444,9 +454,39 @@ socket.on('victoire_manche', (data: {
       setConfirmationEnvoyee(true);
     });
 
-    socket.on('adversaire_a_confirme', () => {
+        socket.on('adversaire_a_confirme', () => {
       setAdversaireAConfirme(true);
     });
+
+    // ⬇️ AJOUTE ICI LE NOUVEAU LISTENER ⬇️
+    socket.on('match_nul_attente', (data: {
+      niveau: number;
+      pointsJoueur1: number;
+      pointsJoueur2: number;
+      joueur1: string;
+      joueur2: string;
+      nombreMystere: number;
+    }) => {
+      console.log('📡 match_nul_attente reçu:', data);
+      nettoyerTimers();
+      
+      // Mettre à jour les points
+      if (pseudoRef.current === data.joueur1) {
+        setPointsJoueur(data.pointsJoueur1);
+        setPointsAdversaire(data.pointsJoueur2);
+      } else {
+        setPointsJoueur(data.pointsJoueur2);
+        setPointsAdversaire(data.pointsJoueur1);
+      }
+      
+      setNiveau(data.niveau);
+      setNombreMystere(data.nombreMystere);
+      setEtat('egal');  // ← déclenche l'écran match nul
+      setActionCreateur(null);  // ← l'invité attend le choix du créateur
+      setConfirmationEnvoyee(false);
+      setAdversaireAConfirme(false);
+    });
+
   }, [demarrerTimerAffichage, arreterTimerAffichage, nettoyerTimers, propositions.length, essaisAdversaire]);
 
   const creerSalle = useCallback(async (niveauChoisi: number) => {
@@ -548,30 +588,35 @@ socket.on('victoire_manche', (data: {
     }
   }, [monTour, etat, niveau, nombreMystere, propositions, tempsRestant, essaisRestants, nettoyerTimers, arreterTimerAffichage]);
 
-  // Nouvelle fonction : le créateur choisit un niveau
+  // Le créateur choisit un niveau
   const choisirNiveau = useCallback((niveauChoisi: number) => {
-    if (socketRef.current?.connected && estHote && (etat === 'victoire_manche' || etat === 'defaite_manche')) {
+    if (socketRef.current?.connected) {
       socketRef.current.emit('createur_choisit_niveau', { pseudo: pseudoRef.current, niveau: niveauChoisi });
       setActionCreateur(`Niveau ${niveauChoisi}`);
       setProchainNiveauChoisi(niveauChoisi);
     }
-  }, [estHote, etat]);
+  }, []);
 
-  // Nouvelle fonction : le créateur recommence le même niveau
+  // Le créateur recommence le niveau actuel
   const recommencerNiveau = useCallback(() => {
-    if (socketRef.current?.connected && estHote && (etat === 'victoire_manche' || etat === 'defaite_manche')) {
+    if (socketRef.current?.connected) {
       socketRef.current.emit('createur_choisit_niveau', { pseudo: pseudoRef.current, recommencer: true });
       setActionCreateur(`Niveau ${niveau} (replay)`);
       setProchainNiveauChoisi(niveau);
     }
-  }, [estHote, etat, niveau]);
+  }, [niveau]);
 
-  // Nouvelle fonction : l'invité confirme pour le nouveau duel
-  const confirmerNouveauDuel = useCallback(() => {
-    if (socketRef.current?.connected && !estHote && actionCreateur && (etat === 'victoire_manche' || etat === 'defaite_manche')) {
-      socketRef.current.emit('invite_confirme', { pseudo: pseudoRef.current });
-    }
-  }, [estHote, actionCreateur, etat]);
+  // ═══════════════════════════════════════════════════════════════════════
+  //  L'invité confirme pour le nouveau duel
+  //  ⚠️ CRITIQUE: Utilise actionCreateur pour savoir si le créateur a choisi
+  // ═══════════════════════════════════════════════════════════════════════
+const confirmerNouveauDuel = useCallback(() => {
+  if (socketRef.current?.connected && !estHoteRef.current && actionCreateur && 
+      (etat === 'victoire_manche' || etat === 'defaite_manche' || etat === 'egal') && !confirmationEnvoyee) {
+    socketRef.current.emit('invite_confirme', { pseudo: pseudoRef.current });
+    setConfirmationEnvoyee(true);
+  }
+}, [estHoteRef, actionCreateur, etat, confirmationEnvoyee]);
 
   const continuerMancheSuivante = useCallback(() => {
     if (socketRef.current?.connected && (etat === 'victoire_manche' || etat === 'defaite_manche')) {
@@ -693,6 +738,10 @@ socket.on('victoire_manche', (data: {
   const reinitialiser = useCallback(() => {
     arreterTimerAffichage();
     if (socketRef.current?.connected) {
+      // ✅ FIX : émettre quitter_salle AVANT de déconnecter
+      // Sans ça, handle_disconnect côté serveur peut ne pas trouver la salle
+      // si l'adversaire l'a déjà supprimée, et les stats ne sont jamais sauvegardées
+      socketRef.current.emit('quitter_salle', { pseudo: pseudoRef.current });
       socketRef.current.disconnect();
       socketRef.current = null;
     }
@@ -719,8 +768,10 @@ socket.on('victoire_manche', (data: {
     pretEnvoyeRef.current = false;
     compteurTentativesRef.current = 0;
     setActionCreateur(null);
+    setVictoiresJoueur1(0);
+    setVictoiresJoueur2(0);
   }, [arreterTimerAffichage]);
-
+  
   const niveauConfig = NIVEAUX_CONFIG[niveau as keyof typeof NIVEAUX_CONFIG] ?? NIVEAUX_CONFIG[1];
   const derniereProposition = propositions[propositions.length - 1] ?? null;
 
@@ -764,6 +815,8 @@ socket.on('victoire_manche', (data: {
     abandonData,
     actionCreateur,
     prochainNiveauChoisi,
+    victoiresJoueur1,
+    victoiresJoueur2,
     creerSalle,
     rejoindreSalle,
     envoyerPret,

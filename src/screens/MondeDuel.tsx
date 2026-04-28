@@ -150,6 +150,7 @@ export const MondeDuel: React.FC<Props> = ({
             pulseAnim={pulseAnim}
           />
         );
+        
       case 'victoire_par_abandon':
         if (showVictoireAbandonScreen) {
           return <EcranVictoireParAbandon duel={duel} pseudo={pseudo} onRetour={() => {
@@ -170,13 +171,31 @@ export const MondeDuel: React.FC<Props> = ({
         }} />;
       case 'victoire':
       case 'defaite':
-      case 'egal':
         return <EcranResultat duel={duel} pseudo={pseudo} onRejouer={() => {
           duel.reinitialiser();
         }} onMenu={() => {
           duel.reinitialiser();
           onRetour();
         }} />;
+    case 'egal':
+  return (
+    <EcranFinManche
+      victoire={false}
+      matchNul={true}
+      duel={duel}
+      pseudo={pseudo}
+      onChoisirNiveau={() => setShowNiveauModal(true)}
+      onRecommencer={handleRecommencer}
+      onQuitter={duel.quitterProprement}
+      onConfirmer={handleConfirmer}
+      onRetourMenu={duel.reinitialiser}
+      estCreateur={duel.estHote}
+      actionCreateur={duel.actionCreateur}
+      boutonConfirmeAnime={boutonConfirmeAnime}
+      pulseAnim={pulseAnim}
+    />
+  );
+        
       case 'adversaire_parti':
         return <EcranAdversaireParti duel={duel} onRetour={() => {
           duel.reinitialiser();
@@ -240,6 +259,7 @@ export const MondeDuel: React.FC<Props> = ({
                   {(duel.etat === 'victoire' || duel.etat === 'defaite' || duel.etat === 'egal') && '🏁  TERMINÉ'}
                   {duel.etat === 'adversaire_parti' && '🔌  DÉCONNECTÉ'}
                   {duel.etat === 'adversaire_a_quitte' && '🚪  ADVERSAIRE PARTI'}
+                  
                 </Text>
               </View>
             </View>
@@ -316,8 +336,16 @@ export const MondeDuel: React.FC<Props> = ({
 //  - Invité : 2 boutons (Confirmer, Quitter)
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════════════════
+//  ÉCRAN FIN DE MANCHE (VICTOIRE ou DÉFAITE) — Version corrigée
+//  - Affiche les compteurs CUMULÉS (victoires/défaites)
+//  - Créateur : 3 boutons (Choisir niveau, Recommencer, Quitter)
+//  - Invité : 2 boutons (Confirmer, Quitter)
+// ═══════════════════════════════════════════════════════════════════════════════
+
 const EcranFinManche: React.FC<{
   victoire: boolean;
+  matchNul?: boolean;
   duel: ReturnType<typeof useDuel>;
   pseudo: string;
   onChoisirNiveau: () => void;
@@ -330,7 +358,7 @@ const EcranFinManche: React.FC<{
   boutonConfirmeAnime: boolean;
   pulseAnim: Animated.Value;
 }> = ({ 
-  victoire, duel, pseudo, onChoisirNiveau, onRecommencer, onQuitter, 
+  victoire, matchNul = false, duel, pseudo, onChoisirNiveau, onRecommencer, onQuitter, 
   onConfirmer, onRetourMenu, estCreateur, actionCreateur, boutonConfirmeAnime, pulseAnim 
 }) => {
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
@@ -348,19 +376,17 @@ const EcranFinManche: React.FC<{
     }
   }, []);
 
-  const niveauInfo = NIVEAUX_DUEL.find(n => n.id === duel.niveau) || NIVEAUX_DUEL[0];
-
   return (
     <Animated.View style={[S.finContainer, { transform: [{ scale: scaleAnim }] }]}>
       <LinearGradient 
-        colors={victoire ? ['#0a2e1a', '#0b4d20', '#0d5e28'] : ['#2a0a0a', '#4a1010', '#6a1515']} 
+        colors={matchNul ? ['#1a1004', '#3d2800', '#5a3e00'] : victoire ? ['#0a2e1a', '#0b4d20', '#0d5e28'] : ['#2a0a0a', '#4a1010', '#6a1515']} 
         style={S.finCard} 
         start={{ x: 0, y: 0 }} 
         end={{ x: 1, y: 1 }}
       >
-        <Animated.View style={[S.finGlow, { opacity: glowAnim, backgroundColor: victoire ? C.green : C.red }]} />
+        <Animated.View style={[S.finGlow, { opacity: glowAnim, backgroundColor: matchNul ? C.gold : victoire ? C.green : C.red }]} />
         
-        {victoire && showConfetti && (
+        {victoire && !matchNul && showConfetti && (
           <View style={S.confettiContainer}>
             <Text style={[S.confetti, { top: 20, left: 20 }]}>✨</Text>
             <Text style={[S.confetti, { top: 50, right: 30 }]}>🎉</Text>
@@ -371,21 +397,33 @@ const EcranFinManche: React.FC<{
 
         <View style={S.finHeader}>
           <View style={S.finIconWrapper}>
-            <LinearGradient colors={victoire ? ['#f5a623', '#ffd166'] : ['#f05252', '#a01515']} style={S.finIconCircle}>
-              <Text style={S.finIcon}>{victoire ? '🏆' : '💀'}</Text>
+            <LinearGradient 
+              colors={matchNul ? ['#b07d0e', '#ffd166'] : victoire ? ['#f5a623', '#ffd166'] : ['#f05252', '#a01515']} 
+              style={S.finIconCircle}
+            >
+              <Text style={S.finIcon}>{matchNul ? '🤝' : victoire ? '🏆' : '💀'}</Text>
             </LinearGradient>
           </View>
-          <Text style={[S.finTitle, victoire ? { color: C.gold } : { color: C.red }]}>
-            {victoire ? 'VICTOIRE !' : 'DÉFAITE'}
+          <Text style={[S.finTitle, matchNul ? { color: C.gold } : victoire ? { color: C.gold } : { color: C.red }]}>
+            {matchNul ? 'MATCH NUL' : victoire ? 'VICTOIRE !' : 'DÉFAITE'}
           </Text>
-          <Text style={S.finNiveau}>Niveau {duel.niveau} terminé</Text>
+          <Text style={S.finNiveau}>
+            {matchNul 
+              ? 'Les deux joueurs ont épuisé leurs essais' 
+              : `Niveau ${duel.niveau} terminé`}
+          </Text>
         </View>
 
+        {/* Scoreboard */}
         <View style={S.scoreBoard}>
           <View style={S.scorePlayer}>
             <View style={S.scoreAvatar}><Text style={S.scoreAvatarText}>👤</Text></View>
             <Text style={S.scoreName}>{pseudo}</Text>
-            <Text style={[S.scorePoints, victoire && { color: C.gold }]}>{duel.pointsJoueur}</Text>
+            <Text style={[S.scorePoints, victoire && !matchNul && { color: C.gold }]}>
+              {duel.victoiresJoueur1 && duel.victoiresJoueur2 ? 
+                (estCreateur ? duel.victoiresJoueur1 : duel.victoiresJoueur2) : 
+                duel.pointsJoueur}
+            </Text>
           </View>
           <View style={S.scoreDivider}>
             <View style={S.scoreDividerLine} />
@@ -393,84 +431,152 @@ const EcranFinManche: React.FC<{
             <View style={S.scoreDividerLine} />
           </View>
           <View style={[S.scorePlayer, { alignItems: 'flex-end' }]}>
-            <View style={[S.scoreAvatar, { backgroundColor: '#ffffff15' }]}><Text style={S.scoreAvatarText}>⚔️</Text></View>
+            <View style={[S.scoreAvatar, { backgroundColor: '#ffffff15' }]}>
+              <Text style={S.scoreAvatarText}>⚔️</Text>
+            </View>
             <Text style={S.scoreName}>{duel.adversairePseudo}</Text>
-            <Text style={[S.scorePoints, !victoire && { color: C.red }]}>{duel.pointsAdversaire}</Text>
+            <Text style={[S.scorePoints, !victoire && !matchNul && { color: C.red }]}>
+              {duel.victoiresJoueur1 && duel.victoiresJoueur2 ? 
+                (estCreateur ? duel.victoiresJoueur2 : duel.victoiresJoueur1) : 
+                duel.pointsAdversaire}
+            </Text>
           </View>
         </View>
 
-        {/* Boutons selon le rôle */}
-        {estCreateur ? (
-          // CRÉATEUR : 3 boutons
-          <View style={S.buttonsColumn}>
-            <TouchableOpacity onPress={onChoisirNiveau} style={S.btnPrimaryFull} activeOpacity={0.85}>
-              <LinearGradient colors={['#6d28d9', '#9d5ff5']} style={S.btnPrimaryFullGrad}>
-                <Text style={S.btnIcon}>🎯</Text>
-                <View style={S.btnTextContainer}>
-                  <Text style={S.btnTitle}>Choisir un niveau</Text>
-                  <Text style={S.btnSubtitle}>Sélectionner un autre niveau</Text>
-                </View>
-                <Text style={S.btnArrow}>→</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={onRecommencer} style={S.btnPrimaryFull} activeOpacity={0.85}>
-              <LinearGradient colors={['#3a1a6a', '#5a2a8a']} style={S.btnPrimaryFullGrad}>
-                <Text style={S.btnIcon}>🔄</Text>
-                <View style={S.btnTextContainer}>
-                  <Text style={S.btnTitle}>Recommencer</Text>
-                  <Text style={S.btnSubtitle}>Rejouer le niveau {duel.niveau}</Text>
-                </View>
-                <Text style={S.btnArrow}>→</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={onQuitter} style={S.quitBtnFull} activeOpacity={0.85}>
-              <LinearGradient colors={['#dc2626', '#b91c1c']} style={S.quitBtnFullGrad}>
-                <Text style={S.quitBtnIcon}>🚪</Text>
-                <Text style={S.quitBtnText}>Quitter</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          // INVITÉ : 2 boutons
-          <View style={S.buttonsColumn}>
-            <Animated.View style={{ transform: [{ scale: boutonConfirmeAnime ? pulseAnim : 1 }] }}>
-              <TouchableOpacity 
-                onPress={onConfirmer} 
-                style={[S.btnConfirmFull, !actionCreateur && S.btnConfirmFullDisabled]} 
-                activeOpacity={0.85}
-                disabled={!actionCreateur}
-              >
-                <LinearGradient 
-                  colors={actionCreateur ? ['#f5a623', '#ffd166'] : [C.bgCardLit, C.bgCard]} 
-                  style={S.btnConfirmFullGrad}
-                >
-                  <Text style={S.btnConfirmIcon}>✅</Text>
+        {/* ============================================ */}
+        {/* BOUTONS SELON LE CAS (matchNul ou non) */}
+        {/* ============================================ */}
+        
+        {matchNul ? (
+          /* ===== MATCH NUL ===== */
+          estCreateur ? (
+            /* Créateur en match nul : 2 boutons (Recommencer + Quitter) */
+            <View style={S.buttonsColumn}>
+              <TouchableOpacity onPress={onRecommencer} style={S.btnPrimaryFull} activeOpacity={0.85}>
+                <LinearGradient colors={['#3a1a6a', '#5a2a8a']} style={S.btnPrimaryFullGrad}>
+                  <Text style={S.btnIcon}>🔄</Text>
                   <View style={S.btnTextContainer}>
-                    <Text style={[S.btnTitle, actionCreateur && { color: C.bgDeep }]}>Confirmer</Text>
-                    <Text style={[S.btnSubtitle, actionCreateur && { color: C.bgDeep + 'aa' }]}>
-                      {actionCreateur ? `Partie suivant - ${actionCreateur}` : 'En attente du choix...'}
-                    </Text>
+                    <Text style={S.btnTitle}>Recommencer</Text>
+                    <Text style={S.btnSubtitle}>Rejouer le niveau {duel.niveau}</Text>
                   </View>
-                  <Text style={[S.btnArrow, actionCreateur && { color: C.bgDeep }]}>→</Text>
+                  <Text style={S.btnArrow}>→</Text>
                 </LinearGradient>
               </TouchableOpacity>
-            </Animated.View>
 
-            <TouchableOpacity onPress={onQuitter} style={S.quitBtnFull} activeOpacity={0.85}>
-              <LinearGradient colors={['#dc2626', '#b91c1c']} style={S.quitBtnFullGrad}>
-                <Text style={S.quitBtnIcon}>🚪</Text>
-                <Text style={S.quitBtnText}>Quitter</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity onPress={onQuitter} style={S.quitBtnFull} activeOpacity={0.85}>
+                <LinearGradient colors={['#dc2626', '#b91c1c']} style={S.quitBtnFullGrad}>
+                  <Text style={S.quitBtnIcon}>🚪</Text>
+                  <Text style={S.quitBtnText}>Quitter</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            /* Invité en match nul : 2 boutons (Confirmer + Quitter) */
+            <View style={S.buttonsColumn}>
+              <Animated.View style={{ transform: [{ scale: boutonConfirmeAnime ? pulseAnim : 1 }] }}>
+                <TouchableOpacity 
+                  onPress={onConfirmer} 
+                  style={[S.btnConfirmFull, !actionCreateur && S.btnConfirmFullDisabled]} 
+                  activeOpacity={0.85}
+                  disabled={!actionCreateur}
+                >
+                  <LinearGradient 
+                    colors={actionCreateur ? ['#f5a623', '#ffd166'] : [C.bgCardLit, C.bgCard]} 
+                    style={S.btnConfirmFullGrad}
+                  >
+                    <Text style={S.btnConfirmIcon}></Text>
+                    <View style={S.btnTextContainer}>
+                      <Text style={[S.btnTitle, actionCreateur && { color: C.bgDeep }]}>Confirmer</Text>
+                      <Text style={[S.btnSubtitle, actionCreateur && { color: C.bgDeep + 'aa' }]}>
+                        {actionCreateur ? `Partie suivante - ${actionCreateur}` : 'En attente du choix...'}
+                      </Text>
+                    </View>
+                    <Text style={[S.btnArrow, actionCreateur && { color: C.bgDeep }]}>→</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </Animated.View>
+
+              <TouchableOpacity onPress={onQuitter} style={S.quitBtnFull} activeOpacity={0.85}>
+                <LinearGradient colors={['#dc2626', '#b91c1c']} style={S.quitBtnFullGrad}>
+                  <Text style={S.quitBtnIcon}>🚪</Text>
+                  <Text style={S.quitBtnText}>Quitter</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          )
+        ) : (
+          /* ===== VICTOIRE ou DÉFAITE de manche (pas match nul) ===== */
+          estCreateur ? (
+            /* Créateur : 3 boutons (Choisir niveau + Recommencer + Quitter) */
+            <View style={S.buttonsColumn}>
+              <TouchableOpacity onPress={onChoisirNiveau} style={S.btnPrimaryFull} activeOpacity={0.85}>
+                <LinearGradient colors={['#6d28d9', '#9d5ff5']} style={S.btnPrimaryFullGrad}>
+                  <Text style={S.btnIcon}>🎯</Text>
+                  <View style={S.btnTextContainer}>
+                    <Text style={S.btnTitle}>Choisir un niveau</Text>
+                    <Text style={S.btnSubtitle}>Sélectionner un autre niveau</Text>
+                  </View>
+                  <Text style={S.btnArrow}>→</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={onRecommencer} style={S.btnPrimaryFull} activeOpacity={0.85}>
+                <LinearGradient colors={['#3a1a6a', '#5a2a8a']} style={S.btnPrimaryFullGrad}>
+                  <Text style={S.btnIcon}>🔄</Text>
+                  <View style={S.btnTextContainer}>
+                    <Text style={S.btnTitle}>Recommencer</Text>
+                    <Text style={S.btnSubtitle}>Rejouer le niveau {duel.niveau}</Text>
+                  </View>
+                  <Text style={S.btnArrow}>→</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={onQuitter} style={S.quitBtnFull} activeOpacity={0.85}>
+                <LinearGradient colors={['#dc2626', '#b91c1c']} style={S.quitBtnFullGrad}>
+                  <Text style={S.quitBtnIcon}>🚪</Text>
+                  <Text style={S.quitBtnText}>Quitter</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            /* Invité : 2 boutons (Confirmer + Quitter) */
+            <View style={S.buttonsColumn}>
+              <Animated.View style={{ transform: [{ scale: boutonConfirmeAnime ? pulseAnim : 1 }] }}>
+                <TouchableOpacity 
+                  onPress={onConfirmer} 
+                  style={[S.btnConfirmFull, !actionCreateur && S.btnConfirmFullDisabled]} 
+                  activeOpacity={0.85}
+                  disabled={!actionCreateur}
+                >
+                  <LinearGradient 
+                    colors={actionCreateur ? ['#f5a623', '#ffd166'] : [C.bgCardLit, C.bgCard]} 
+                    style={S.btnConfirmFullGrad}
+                  >
+                    <Text style={S.btnConfirmIcon}></Text>
+                    <View style={S.btnTextContainer}>
+                      <Text style={[S.btnTitle, actionCreateur && { color: C.bgDeep }]}>Confirmer</Text>
+                      <Text style={[S.btnSubtitle, actionCreateur && { color: C.bgDeep + 'aa' }]}>
+                        {actionCreateur ? `Partie suivante - ${actionCreateur}` : 'En attente du choix...'}
+                      </Text>
+                    </View>
+                    <Text style={[S.btnArrow, actionCreateur && { color: C.bgDeep }]}>→</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </Animated.View>
+
+              <TouchableOpacity onPress={onQuitter} style={S.quitBtnFull} activeOpacity={0.85}>
+                <LinearGradient colors={['#dc2626', '#b91c1c']} style={S.quitBtnFullGrad}>
+                  <Text style={S.quitBtnIcon}>🚪</Text>
+                  <Text style={S.quitBtnText}>Quitter</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          )
         )}
       </LinearGradient>
     </Animated.View>
   );
 };
-
 // ═══════════════════════════════════════════════════════════════════════════════
 //  NOTIFICATIONS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1092,7 +1198,6 @@ const EcranDefaiteParAbandon: React.FC<{ duel: ReturnType<typeof useDuel>; pseud
         </View>
         <View style={S.abandonMessageCard}>
           <Text style={S.abandonMessageIcon}>⚠️</Text>
-          <Text style={S.abandonMessageTitle}>Pas de pénalité</Text>
           <Text style={S.abandonMessageText}>Vous avez abandonné volontairement.</Text>
         </View>
         <TouchableOpacity onPress={onRetour} style={S.quitBtnFull} activeOpacity={0.85}>
@@ -1124,16 +1229,18 @@ const EcranResultat: React.FC<{ duel: ReturnType<typeof useDuel>; pseudo: string
   }, []);
 
   const isVictoire = etat === 'victoire';
-  const isEgal = etat === 'egal';
+  // ✅ FIX Bug 3 : 'egal' quand essais épuisés des deux → défaite pour les deux, pas égalité
+  const isEgal = false; // On ne l'utilise plus pour afficher "Égalité"
 
   const config = isVictoire ? {
     emoji: '🏆', titre: 'VICTOIRE !',
     colors: ['#04200e', '#0b4d20', '#16a34a'] as [string, string, string],
     glow: C.green,
-  } : isEgal ? {
-    emoji: '🤝', titre: 'ÉGALITÉ !',
-    colors: ['#1a1004', '#3d2800', '#b07d0e'] as [string, string, string],
-    glow: C.gold,
+  } : etat === 'egal' ? {
+    // Essais épuisés des deux côtés = défaite mutuelle, aucune pénalité
+    emoji: '💀', titre: 'DÉFAITE MUTUELLE',
+    colors: ['#200404', '#5a0808', '#b91c1c'] as [string, string, string],
+    glow: C.red,
   } : {
     emoji: '💀', titre: 'DÉFAITE',
     colors: ['#200404', '#5a0808', '#b91c1c'] as [string, string, string],
@@ -1146,6 +1253,12 @@ const EcranResultat: React.FC<{ duel: ReturnType<typeof useDuel>; pseudo: string
         <Animated.View style={[S.resultatGlow, { backgroundColor: config.glow, opacity: glowAnim }]} />
         <Text style={S.resultatEmoji}>{config.emoji}</Text>
         <Text style={S.resultatTitre}>{config.titre}</Text>
+        {/* ✅ FIX Bug 3 : message "aucune pénalité" pour défaite mutuelle */}
+        {etat === 'egal' && (
+          <Text style={{ color: '#fbbf24', fontSize: 13, textAlign: 'center', marginBottom: 8, opacity: 0.85 }}>
+            Les deux joueurs ont épuisé leurs essais.{'\n'}Aucune pénalité pour les deux. 🤝
+          </Text>
+        )}
         {resultat && (
           <>
             <Text style={S.resultatMystere}>Nombre mystère : <Text style={S.resultatMystereVal}>{resultat.nombreMystere}</Text></Text>
@@ -1163,9 +1276,25 @@ const EcranResultat: React.FC<{ duel: ReturnType<typeof useDuel>; pseudo: string
             </View>
           </>
         )}
-        <View style={S.resultatBtns}>
-          <TouchableOpacity onPress={onRejouer} style={S.resultatBtnSecond} activeOpacity={0.7}><Text style={S.resultatBtnSecondText}>🔄  Rejouer</Text></TouchableOpacity>
-          <TouchableOpacity onPress={onMenu} style={S.resultatBtnSecond} activeOpacity={0.7}><Text style={S.resultatBtnSecondText}>← Menu</Text></TouchableOpacity>
+        <View style={S.buttonsColumn}>
+          {etat !== 'egal' && (
+            <TouchableOpacity onPress={onRejouer} style={S.btnPrimaryFull} activeOpacity={0.85}>
+              <LinearGradient colors={['#6d28d9', '#9d5ff5']} style={S.btnPrimaryFullGrad}>
+                <Text style={S.btnIcon}>🔄</Text>
+                <View style={S.btnTextContainer}>
+                  <Text style={S.btnTitle}>Rejouer</Text>
+                  <Text style={S.btnSubtitle}>Lancer un nouveau duel</Text>
+                </View>
+                <Text style={S.btnArrow}>→</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity onPress={onMenu} style={S.quitBtnFull} activeOpacity={0.85}>
+            <LinearGradient colors={['#dc2626', '#b91c1c']} style={S.quitBtnFullGrad}>
+              <Text style={S.quitBtnIcon}>←</Text>
+              <Text style={S.quitBtnText}>MENU</Text>
+            </LinearGradient>
+          </TouchableOpacity>
         </View>
       </LinearGradient>
     </Animated.View>

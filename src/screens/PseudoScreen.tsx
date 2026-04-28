@@ -163,7 +163,7 @@ export const PseudoScreen: React.FC<Props> = ({ onValidPseudo }) => {
 
         {/* ── Modes disponibles ── */}
         <View style={S.modesRow}>
-          {[{ icon: '🎯', label: 'Solo' }, { icon: '⚔️', label: 'Duel' }, { icon: '🏆', label: 'Scores' }, { icon: '👤', label: 'Profil' }].map((m, i) => (
+          {[{ icon: '🎯', label: 'Solo' }, { icon: '⚔️', label: 'Duel' }, { icon: '🏆', label: 'Scores' }].map((m, i) => (
             <View key={i} style={S.modeChip}>
               <Text style={S.modeIcon}>{m.icon}</Text>
               <Text style={S.modeLabel}>{m.label}</Text>

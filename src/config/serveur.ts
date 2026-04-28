@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ── IP du serveur (à modifier selon l'environnement) ─────────────────────────
-export const SERVEUR_IP = '10.53.2.180';
+export const SERVEUR_IP = '192.168.1.205';
 
 // ── Configuration des ports ──────────────────────────────────────────────────
 export const PORT_API = 5000;

@@ -51,7 +51,7 @@ const fetchAvecTimeout = (url: string, options?: RequestInit): Promise<Response>
 
 export const verifierConnexion = async (): Promise<boolean> => {
   try {
-    const res = await fetchAvecTimeout(`${API_URL}/health`);
+    const res = await fetchAvecTimeout(`${API_URL}/api/health`);
     return res.ok;
   } catch {
     return false;
@@ -111,7 +111,7 @@ export const enregistrerScore = async (
   const score: ScoreLocal = { ...scoreData, id: genId(), synced: false };
 
   try {
-    const res = await fetchAvecTimeout(`${API_URL}/scores`, {
+    const res = await fetchAvecTimeout(`${API_URL}/api/scores`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(score),
@@ -151,7 +151,7 @@ export const syncroniserScoresEnAttente = async (): Promise<{
 
   for (const score of nonSynces) {
     try {
-      const res = await fetchAvecTimeout(`${API_URL}/scores`, {
+      const res = await fetchAvecTimeout(`${API_URL}/api/scores`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(score),

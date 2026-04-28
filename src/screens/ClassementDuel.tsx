@@ -79,12 +79,13 @@ export const ClassementDuel: React.FC<Props> = ({ onRetour, pseudo }) => {
     setErreur(null);
 
     try {
-      // ✅ Tri par victoires DESC, puis défaites ASC, puis pseudo ASC (déjà fait côté serveur)
       const response = await fetch(`${API_URL}/api/classement/duel/niveau/${niveau}`);
-      if (!response.ok) throw new Error('Erreur de chargement');
+      if (!response.ok) throw new Error(`Erreur serveur: ${response.status}`);
       const data = await response.json();
-      setClassement(data);
+      // data peut être [] si aucun joueur — c'est normal, pas une erreur
+      setClassement(Array.isArray(data) ? data : []);
     } catch (err) {
+      console.error('Classement error:', err);
       setErreur('Impossible de charger le classement');
       setClassement([]);
     } finally {
@@ -95,7 +96,7 @@ export const ClassementDuel: React.FC<Props> = ({ onRetour, pseudo }) => {
 
   useEffect(() => {
     chargerClassement(niveauActif);
-  }, [niveauActif]);
+  }, [niveauActif, chargerClassement]);
 
   const onRefresh = () => {
     setRafraichissement(true);

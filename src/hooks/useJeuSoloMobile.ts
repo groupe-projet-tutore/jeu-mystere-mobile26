@@ -227,7 +227,7 @@ export const useJeuSoloMobile = (pseudo: string = 'Joueur') => {
             pseudo,
             niveauId:  niveau.id,
             points:    pointsGagnes,
-            essais:    nouveauxCompletes.length,
+            essais: partieEnCours.propositions.length + 1,
             date:      new Date().toISOString(),
           }).then((statut) => {
             setStatutConnexion(statut);
