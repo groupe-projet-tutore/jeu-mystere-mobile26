@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ── IP du serveur (à modifier selon l'environnement) ─────────────────────────
-export const SERVEUR_IP = '192.168.1.205';
+export const SERVEUR_IP = 'localhost'; // À remplacer par votre IP locale
 
 // ── Configuration des ports ──────────────────────────────────────────────────
 export const PORT_API = 5000;
